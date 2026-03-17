@@ -1,0 +1,44 @@
+{
+  "scenes": {
+    "start": {
+      "speaker": "NAS油条",
+      "lines": [
+        "本项目由Rust语言开发，按回车键继续。",
+        "哪个游戏牛逼?"
+      ],
+      "options": [
+        { "text": "原神牛逼👍", "next_scene": "ysnb" },
+        { "text": "鸣朝牛逼👍", "next_scene": "mcnb" }
+      ]
+    },
+    "ysnb": {
+      "speaker": "鸣朝",
+      "lines": [
+        "鸣朝才牛逼😡",
+        "原神不牛逼🤓"
+      ],
+      "options": [
+        { "text": "鸣朝牛逼", "next_scene": "hnb" }
+      ]
+    },
+    "mcnb": {
+      "speaker": "原神",
+      "lines": [
+        "原神才牛逼🤓👍",
+        "鸣朝不牛逼😡"
+      ],
+      "options": [
+        { "text": "原神牛逼", "next_scene": "hnb" }
+      ]
+    },
+    "hnb": {
+      "speaker": "NAS油条",
+      "lines": [
+        "😋他们产的片才牛逼😋",
+        "游戏结束"
+      ],
+      "options": []
+    }
+  },
+  "initial_scene": "start"
+}
