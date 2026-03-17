@@ -144,7 +144,7 @@ ngal
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！如果你想添加新功能（如立绘显示、音效、多存档槽），请先开 Issue 讨论。
+欢迎提交 Issue 和 Pull Request！
 
 开发环境准备：
 
