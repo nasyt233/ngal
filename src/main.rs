@@ -38,7 +38,9 @@ const DEFAULT_DIALOGUE: &str = r#"{
     "ysnb": {
       "dialogue": [
         { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓" }
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓" },
+        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
+        { "speaker": "原神", "text": "鸣朝不牛逼😡" }
       ],
       "options": [
         { "text": "鸣朝牛逼", "next_scene": "hnb" }
@@ -47,7 +49,9 @@ const DEFAULT_DIALOGUE: &str = r#"{
     "mcnb": {
       "dialogue": [
         { "speaker": "原神", "text": "原神才牛逼🤓👍" },
-        { "speaker": "原神", "text": "鸣朝不牛逼😡" }
+        { "speaker": "原神", "text": "鸣朝不牛逼😡" },
+        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓" }
       ],
       "options": [
         { "text": "原神牛逼", "next_scene": "hnb" }
@@ -55,7 +59,7 @@ const DEFAULT_DIALOGUE: &str = r#"{
     },
     "hnb": {
       "dialogue": [
-        { "speaker": "NAS油条", "text": "😋他们产的片才牛逼😋" },
+        { "speaker": "我", "text": "😋他们产的片才牛逼😋" },
         { "speaker": "NAS油条", "text": "游戏结束" }
       ],
       "options": []
