@@ -1,15 +1,12 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, stdout};
-use std::panic;
 use std::path::Path;
-use anyhow::{anyhow, Result};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use image::{ImageBuffer, ImageReader, Rgba};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -20,15 +17,14 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
-// ---------- 默认对话与配置 ----------
+// ---------- 精简版默认对话 ----------
 const DEFAULT_DIALOGUE: &str = r#"{
-  "title": "原神 VS 鸣朝",
-  "footer": "按回车继续 | q 退出",
   "scenes": {
     "start": {
-      "dialogue": [
-        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。" },
-        { "speaker": "NAS油条", "text": "哪个游戏牛逼?" }
+      "speaker": "NAS油条",
+      "lines": [
+        "本项目由Rust语言开发，按回车键继续。",
+        "哪个游戏牛逼?"
       ],
       "options": [
         { "text": "原神牛逼👍", "next_scene": "ysnb" },
@@ -36,27 +32,30 @@ const DEFAULT_DIALOGUE: &str = r#"{
       ]
     },
     "ysnb": {
-      "dialogue": [
-        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓" }
+      "speaker": "鸣朝",
+      "lines": [
+        "鸣朝才牛逼😡",
+        "原神不牛逼🤓"
       ],
       "options": [
         { "text": "鸣朝牛逼", "next_scene": "hnb" }
       ]
     },
     "mcnb": {
-      "dialogue": [
-        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
-        { "speaker": "原神", "text": "鸣朝不牛逼😡" }
+      "speaker": "原神",
+      "lines": [
+        "原神才牛逼🤓👍",
+        "鸣朝不牛逼😡"
       ],
       "options": [
         { "text": "原神牛逼", "next_scene": "hnb" }
       ]
     },
     "hnb": {
-      "dialogue": [
-        { "speaker": "NAS油条", "text": "😋他们产的片才牛逼😋" },
-        { "speaker": "NAS油条", "text": "游戏结束" }
+      "speaker": "NAS油条",
+      "lines": [
+        "😋他们的片才是牛逼🤓👆",
+        "游戏结束"
       ],
       "options": []
     }
@@ -67,14 +66,9 @@ const DEFAULT_DIALOGUE: &str = r#"{
 // ---------- 数据模型 ----------
 
 #[derive(Debug, Clone, Deserialize)]
-struct DialogueLine {
-    speaker: String,
-    text: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 struct SceneData {
-    dialogue: Vec<DialogueLine>,
+    speaker: String,
+    lines: Vec<String>,
     options: Vec<OptionData>,
 }
 
@@ -86,8 +80,6 @@ struct OptionData {
 
 #[derive(Debug, Deserialize)]
 struct DialogueDB {
-    title: String,
-    footer: String,
     scenes: HashMap<String, SceneData>,
     initial_scene: String,
 }
@@ -122,85 +114,6 @@ enum ChoiceAction {
     Load,
 }
 
-// ---------- 图片绘制辅助 ----------
-
-fn draw_portrait(
-    frame: &mut Frame,
-    area: Rect,
-    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
-) {
-    let (img_w, img_h) = img.dimensions();
-    let area_w = area.width as usize;
-    let area_h = area.height as usize;
-
-    let target_px_w = area_w;
-    let target_px_h = area_h * 2;
-
-    let scale_w = target_px_w as f64 / img_w as f64;
-    let scale_h = target_px_h as f64 / img_h as f64;
-    let scale = scale_w.min(scale_h);
-    if scale <= 0.0 {
-        return;
-    }
-
-    let new_w = (img_w as f64 * scale) as u32;
-    let new_h = (img_h as f64 * scale) as u32;
-    if new_w == 0 || new_h == 0 {
-        return;
-    }
-
-    let resized = image::imageops::resize(
-        img,
-        new_w,
-        new_h,
-        image::imageops::FilterType::Triangle,
-    );
-
-    let char_h = (new_h + 1) / 2;
-    let offset_y = if char_h as usize > area_h {
-        0
-    } else {
-        (area_h - char_h as usize) / 2
-    };
-    let offset_x = (area_w as i32 - new_w as i32) / 2;
-
-    let buffer = frame.buffer_mut();
-    for row in 0..area_h {
-        let row_in_img = row as i32 - offset_y as i32;
-        if row_in_img < 0 {
-            continue;
-        }
-        let y_pixel_top = (row_in_img as usize) * 2;
-        if y_pixel_top >= new_h as usize {
-            continue;
-        }
-        let y_pixel_bottom = y_pixel_top + 1;
-        let screen_row = (area.y + row as u16) as usize;
-
-        for col in 0..area_w {
-            let x_pixel = col as i32 - offset_x;
-            if x_pixel < 0 || x_pixel as usize >= new_w as usize {
-                continue;
-            }
-            let x_pixel = x_pixel as usize;
-            let pixel_top = resized.get_pixel(x_pixel as u32, y_pixel_top as u32);
-            let top_color = Color::Rgb(pixel_top[0], pixel_top[1], pixel_top[2]);
-
-            let bottom_color = if y_pixel_bottom < new_h as usize {
-                let pixel_bottom = resized.get_pixel(x_pixel as u32, y_pixel_bottom as u32);
-                Color::Rgb(pixel_bottom[0], pixel_bottom[1], pixel_bottom[2])
-            } else {
-                Color::Black
-            };
-
-            let cell = buffer.get_mut((area.x + col as u16) as u16, screen_row as u16);
-            cell.set_char('▀')
-                .set_fg(top_color)
-                .set_bg(bottom_color);
-        }
-    }
-}
-
 // ---------- 主应用 ----------
 
 struct App {
@@ -209,32 +122,13 @@ struct App {
     selected: usize,
     status_message: Option<String>,
     db: DialogueDB,
-    portraits: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    should_quit: bool, // 新增标志位，用于安全退出
 }
 
 impl App {
-    fn new() -> Result<Self> {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Self::ensure_directories()?;
         let db_content = Self::ensure_dialogue_file()?;
         let db: DialogueDB = serde_json::from_str(&db_content)?;
-
-        let mut portraits = HashMap::new();
-        let portraits_dir = Path::new("assets/portraits");
-        if portraits_dir.exists() {
-            for entry in fs::read_dir(portraits_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if let Ok(img) = Self::load_image(&path) {
-                            portraits.insert(name.to_string(), img);
-                        }
-                    }
-                }
-            }
-        }
-
         Ok(Self {
             state: AppState::Menu,
             menu_options: vec![
@@ -246,34 +140,19 @@ impl App {
             selected: 0,
             status_message: None,
             db,
-            portraits,
-            should_quit: false,
         })
     }
-
-    fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-        let img = ImageReader::open(path)
-            .map_err(|e| anyhow!("无法打开图片 {}: {}", path.display(), e))?
-            .with_guessed_format()
-            .map_err(|e| anyhow!("无法识别图片格式: {}", e))?
-            .decode()
-            .map_err(|e| anyhow!("解码图片失败: {}", e))?;
-        Ok(img.to_rgba8())
-    }
-
+    
     fn ensure_directories() -> io::Result<()> {
         if !Path::new("assets").exists() {
             fs::create_dir("assets")?;
-        }
-        if !Path::new("assets/portraits").exists() {
-            fs::create_dir("assets/portraits")?;
         }
         if !Path::new("save").exists() {
             fs::create_dir("save")?;
         }
         Ok(())
     }
-
+    
     fn ensure_dialogue_file() -> io::Result<String> {
         let path = Path::new("assets/dialogue.json");
         if !path.exists() {
@@ -289,13 +168,9 @@ impl App {
             0 => self.start_game(),
             1 => self.save_game(),
             2 => self.load_game(),
-            3 => self.quit_game(),
+            3 => std::process::exit(0),
             _ => {}
         }
-    }
-
-    fn quit_game(&mut self) {
-        self.should_quit = true;
     }
 
     fn start_game(&mut self) {
@@ -345,12 +220,12 @@ impl App {
         }
     }
 
-    fn current_dialogue_line(&self) -> Option<&DialogueLine> {
+    fn current_dialogue_line(&self) -> Option<String> {
         match &self.state {
             AppState::InDialogue { scene_id, line_index } => {
                 if let Some(scene) = self.db.scenes.get(scene_id) {
-                    if *line_index < scene.dialogue.len() {
-                        return Some(&scene.dialogue[*line_index]);
+                    if *line_index < scene.lines.len() {
+                        return Some(scene.lines[*line_index].clone());
                     }
                 }
                 None
@@ -360,11 +235,15 @@ impl App {
     }
 
     fn current_speaker(&self) -> Option<String> {
-        self.current_dialogue_line().map(|line| line.speaker.clone())
-    }
-
-    fn current_text(&self) -> Option<String> {
-        self.current_dialogue_line().map(|line| line.text.clone())
+        match &self.state {
+            AppState::InDialogue { scene_id, .. } => {
+                self.db.scenes.get(scene_id).map(|s| s.speaker.clone())
+            }
+            AppState::InChoice { scene_id, .. } => {
+                self.db.scenes.get(scene_id).map(|s| s.speaker.clone())
+            }
+            _ => None,
+        }
     }
 
     fn advance_dialogue(&mut self) {
@@ -372,7 +251,7 @@ impl App {
             AppState::InDialogue { scene_id, line_index } => {
                 if let Some(scene) = self.db.scenes.get(scene_id) {
                     let next_line = line_index + 1;
-                    if next_line < scene.dialogue.len() {
+                    if next_line < scene.lines.len() {
                         self.state = AppState::InDialogue {
                             scene_id: scene_id.clone(),
                             line_index: next_line,
@@ -416,6 +295,7 @@ impl App {
     fn handle_event(&mut self, key: KeyCode) {
         self.status_message = None;
 
+        // 处理菜单和对话状态
         match &mut self.state {
             AppState::Menu => {
                 match key {
@@ -454,9 +334,10 @@ impl App {
                 }
                 return;
             }
-            AppState::InChoice { .. } => {}
+            AppState::InChoice { .. } => {} // 稍后处理
         }
 
+        // 处理选项状态
         let action = if let AppState::InChoice { options, selected, .. } = &mut self.state {
             let options_count = options.len();
             match key {
@@ -512,7 +393,42 @@ fn ui(frame: &mut Frame, app: &mut App) {
     render_bottom(frame, chunks[1], app);
 }
 
+/// 华丽标题渲染（短代码版）
+fn render_title() -> Paragraph<'static> {
+    // 使用多行彩色文本，简洁但华丽
+    let title_lines = vec![
+        Line::from(vec![
+            Span::styled("✨", Style::default().fg(Color::Rgb(255, 255, 0))),
+            Span::raw(" "),
+            Span::styled("NAS油条", Style::default().fg(Color::Rgb(212, 112, 212)).add_modifier(Modifier::BOLD)),
+            Span::raw(" : "),
+            Span::styled("谁最牛逼", Style::default().fg(Color::Rgb(255, 200, 100)).add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
+            Span::styled("✨", Style::default().fg(Color::Rgb(255, 255, 0))),
+        ]),
+        Line::from(vec![
+            Span::styled("✦", Style::default().fg(Color::Rgb(200, 100, 255))),
+            Span::raw("   "),
+            Span::styled("nasyt galgame", Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::ITALIC)),
+            Span::raw("   "),
+            Span::styled("✦", Style::default().fg(Color::Rgb(200, 100, 255))),
+        ]),
+        Line::from(vec![
+            Span::styled("★", Style::default().fg(Color::Rgb(255, 215, 0))),
+            Span::raw(" "),
+            Span::styled("Terminal Edition", Style::default().fg(Color::Rgb(180, 180, 180))),
+            Span::raw(" "),
+            Span::styled("★", Style::default().fg(Color::Rgb(255, 215, 0))),
+        ]),
+    ];
+
+    Paragraph::new(title_lines)
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::NONE))
+}
+
 fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
+    // 顶部区域边框（粉紫色双边框）
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Rgb(212, 112, 212)))
@@ -528,36 +444,16 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
 
     match &app.state {
         AppState::Menu => {
-            let title = &app.db.title;
-            let title_paragraph = Paragraph::new(vec![
-                Line::from(vec![
-                    Span::styled("✨", Style::default().fg(Color::Rgb(255, 255, 0))),
-                    Span::raw(" "),
-                    Span::styled(title, Style::default().fg(Color::Rgb(212, 112, 212)).add_modifier(Modifier::BOLD)),
-                    Span::raw(" "),
-                    Span::styled("✨", Style::default().fg(Color::Rgb(255, 255, 0))),
-                ]),
-                Line::from(vec![
-                    Span::styled("✦", Style::default().fg(Color::Rgb(200, 100, 255))),
-                    Span::raw("   Genshin Impact   "),
-                    Span::styled("✦", Style::default().fg(Color::Rgb(200, 100, 255))),
-                ]),
-                Line::from(vec![
-                    Span::styled("★", Style::default().fg(Color::Rgb(255, 215, 0))),
-                    Span::raw(" Terminal Edition "),
-                    Span::styled("★", Style::default().fg(Color::Rgb(255, 215, 0))),
-                ]),
-            ])
-            .alignment(Alignment::Center);
-
+            // 菜单上方显示华丽标题
             let title_area = Rect {
                 x: inner_area.x,
                 y: inner_area.y,
                 width: inner_area.width,
-                height: 4,
+                height: 4.min(inner_area.height),
             };
-            frame.render_widget(title_paragraph, title_area);
+            frame.render_widget(render_title(), title_area);
 
+            // 菜单选项列表（居中显示）
             let items: Vec<ListItem> = app
                 .menu_options
                 .iter()
@@ -579,7 +475,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)));
 
             let list_height = app.menu_options.len() as u16 * 2;
-            let start_y = inner_area.y + (inner_area.height.saturating_sub(list_height + 4)) / 2 + 4;
+            let start_y = inner_area.y + (inner_area.height.saturating_sub(list_height + 4)) / 2 + 4; // 留出标题空间
             let list_area = Rect {
                 x: inner_area.x + (inner_area.width.saturating_sub(30)) / 2,
                 y: start_y,
@@ -588,30 +484,30 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             };
             frame.render_widget(list, list_area);
         }
-        AppState::InDialogue { .. } => {
-            if let Some(line) = app.current_dialogue_line() {
-                if let Some(img) = app.portraits.get(&line.speaker) {
-                    draw_portrait(frame, inner_area, img);
-                } else {
-                    let art = match line.speaker.as_str() {
-                        "NAS油条" => "   🍳  NAS油条  🍳",
-                        "鸣朝"    => "   ⚔️  鸣朝  ⚔️",
-                        "原神"    => "   ✨  原神  ✨",
-                        _ => "   （暂无立绘）",
-                    };
-                    let text = format!("{}\n\n{}", art, line.speaker);
-                    let para = Paragraph::new(text)
-                        .style(Style::default().fg(Color::Rgb(212, 112, 212)))
-                        .alignment(Alignment::Center)
-                        .wrap(Wrap { trim: true });
-                    let para_area = Rect {
-                        x: inner_area.x,
-                        y: inner_area.y + (inner_area.height.saturating_sub(5)) / 2,
-                        width: inner_area.width,
-                        height: 5.min(inner_area.height),
-                    };
-                    frame.render_widget(para, para_area);
-                }
+        AppState::InDialogue { scene_id, .. } => {
+            if let Some(scene) = app.db.scenes.get(scene_id) {
+                // 简单的立绘占位（可扩展）
+                let art = match scene.speaker.as_str() {
+                    "NAS油条" => "  🤓🤓🤓
+                                    🤓    🤓
+                                      🤓🤓🤓
+                                     ",
+                    "鸣朝" => "大唐明朝🤔",
+                    "原神" => "🤔原始人",
+                    _ => "   （暂无立绘）",
+                };
+                let text = format!("{}\n\n{}", art, scene.speaker);
+                let para = Paragraph::new(text)
+                    .style(Style::default().fg(Color::Rgb(212, 112, 212)))
+                    .alignment(Alignment::Center)
+                    .wrap(Wrap { trim: true });
+                let para_area = Rect {
+                    x: inner_area.x,
+                    y: inner_area.y + (inner_area.height.saturating_sub(5)) / 2,
+                    width: inner_area.width,
+                    height: 5.min(inner_area.height),
+                };
+                frame.render_widget(para, para_area);
             }
         }
         AppState::InChoice { options, selected, .. } => {
@@ -658,12 +554,18 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
     let (speaker, content, status) = match &app.state {
         AppState::Menu => (
             "系统".to_string(),
-            format!("{} | q 退出", app.db.footer),
+            match app.selected {
+                0 => "原神牛逼还是鸣朝牛逼🤔".to_string(),
+                1 => "保存当前进度".to_string(),
+                2 => "加载存档".to_string(),
+                3 => "退出游戏".to_string(),
+                _ => "".to_string(),
+            },
             app.status_message.as_deref(),
         ),
         AppState::InDialogue { .. } => (
             app.current_speaker().unwrap_or_else(|| "?".to_string()),
-            app.current_text().unwrap_or_else(|| "".to_string()),
+            app.current_dialogue_line().unwrap_or_else(|| "".to_string()),
             app.status_message.as_deref(),
         ),
         AppState::InChoice { .. } => (
@@ -673,6 +575,7 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
         ),
     };
 
+    // 名字（白色加粗）
     let name_style = Style::default()
         .fg(Color::Rgb(255, 255, 255))
         .add_modifier(Modifier::BOLD);
@@ -680,6 +583,7 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
         .alignment(Alignment::Left);
     frame.render_widget(name_paragraph, name_area);
 
+    // 文本框内容
     let display_text = if let Some(status_msg) = status {
         status_msg
     } else {
@@ -705,39 +609,26 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
 
 // ---------- 主函数 ----------
 
-fn main() -> anyhow::Result<()> {
-    // 设置 panic hook
-    let original_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic_info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture);
-        original_hook(panic_info);
-    }));
-
+fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new().expect("初始化失败，请检查 assets/dialogue.json 和 assets/portraits");
+    let mut app = App::new().expect("初始化失败，请检查 assets/dialogue.json");
 
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
 
         if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => break,
+                KeyCode::Esc => break,
                 _ => app.handle_event(key.code),
             }
         }
-
-        if app.should_quit {
-            break;
-        }
     }
 
-    // 恢复终端
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

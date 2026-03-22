@@ -1,10 +1,11 @@
 {
+  "title": "原神 VS 鸣朝",
+  "footer": "按回车继续 | q 退出",
   "scenes": {
     "start": {
-      "speaker": "NAS油条",
-      "lines": [
-        "本项目由Rust语言开发，按回车键继续。",
-        "哪个游戏牛逼?"
+      "dialogue": [
+        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。" },
+        { "speaker": "NAS油条", "text": "哪个游戏牛逼?" }
       ],
       "options": [
         { "text": "原神牛逼👍", "next_scene": "ysnb" },
@@ -12,30 +13,31 @@
       ]
     },
     "ysnb": {
-      "speaker": "鸣朝",
-      "lines": [
-        "鸣朝才牛逼😡",
-        "原神不牛逼🤓"
+      "dialogue": [
+        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓" },
+        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
+        { "speaker": "原神", "text": "鸣朝不牛逼😡" }
       ],
       "options": [
         { "text": "鸣朝牛逼", "next_scene": "hnb" }
       ]
     },
     "mcnb": {
-      "speaker": "原神",
-      "lines": [
-        "原神才牛逼🤓👍",
-        "鸣朝不牛逼😡"
+      "dialogue": [
+        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
+        { "speaker": "原神", "text": "鸣朝不牛逼😡" },
+        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓" }
       ],
       "options": [
         { "text": "原神牛逼", "next_scene": "hnb" }
       ]
     },
     "hnb": {
-      "speaker": "NAS油条",
-      "lines": [
-        "😋他们产的片才牛逼😋",
-        "游戏结束"
+      "dialogue": [
+        { "speaker": "我", "text": "😋他们产的片才牛逼😋" },
+        { "speaker": "NAS油条", "text": "游戏结束" }
       ],
       "options": []
     }
