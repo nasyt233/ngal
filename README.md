@@ -27,34 +27,36 @@ ngal 是一个用 Rust 编写的终端 Galgame（视觉小说）引擎
 
 ## 🚀 快速开始
 
-安装
-
 从源码编译（推荐）
 
 确保已安装 Rust（1.70+）：
 
-从crates.io社区获取资源
+
+### 从crates.io社区获取资源
 
 ```bash
+# 下载源码构建
 cargo install ngal
+
+# 添加环境变量
+PATH=$HOME/.cargo/bin:$PATH
+
 ```
 
-从github获取资源
+### 从github获取资源
 ```bash
 git clone https://github.com/nasyt233/ngal.git
+
 cd ngal
+
 cargo build --release
+
+# 编译后的可执行文件位于 target/release/ngal
+# 可将其添加到 PATH环境
 ```
 
-编译后的可执行文件位于 target/release/ngal，可将其添加到 PATH。
 
-使用 Cargo 安装
-
-```bash
-cargo install --git https://github.com/nasyt233/ngal.git
-```
-
-运行
+### 运行
 
 直接执行：
 
@@ -67,57 +69,50 @@ ngal
 ```
 .
 ├── assets/
-│   └── dialogue.json   # 默认剧情文件（自动生成）
-└── save/
-    └── save.json       # 存档文件（首次存档后生成）
+│   ├── dialogue.json   # 默认剧情文件（自动生成）
+│   └── portraits/      # 角色立绘目录（自动创建，需手动添加图片）
+│        └──我.png      # 图片的名字 (自行导入) 对应角色的名字，并且自动显示
+├── save/
+│   └── save.json       # 存档文件（首次存档后生成）
+└── ngal                # 项目执行程序
 ```
 
 ## 按键说明
-
-状态 按键 功能
-
-主菜单 ↑/↓ 移动选项
-
- Enter 确认选择
  
-对话中 空格 / Enter 推进到下一句
-
- ESC 返回主菜单
- 
- S 快速存档
- 
- L 快速读档
- 
-选项界面 ↑/↓ 移动光标
-
- Enter 选择选项
- 
- ESC 返回主菜单
- 
- S / L 存档 / 读档
- 
-全局 ESC 从主菜单退出程序
+- 空格/Enter 推进到下一句
+- ↑/↓ 移动光标
+- Enter 选择选项
+- S/L  存档/读档
+- ESC/q 退出程序
 
 ---
 
 ## 📖 自定义剧情
 
-所有剧情数据存储在 assets/dialogue.json 中。你可以按以下格式编写自己的故事：
+所有剧情数据存储在 assets/dialogue.json 中
+
+你可以按以下格式编写自己的故事：
 
 ```json
 {
+  "title": "你的游戏标题",
+  "footer": "底部提示文字 | q 退出",
   "scenes": {
     "scene_id_1": {
-      "speaker": "角色名",
-      "lines": ["第一句台词", "第二句台词", "..."],
+      "dialogue": [
+        { "speaker": "角色A", "text": "第一句话" },
+        { "speaker": "角色B", "text": "第二句话" },
+        { "speaker": "角色A", "text": "第三句话" }
+      ],
       "options": [
-        { "text": "选项显示文字", "next_scene": "目标场景ID" },
-        { "text": "另一个选项", "next_scene": "another_scene" }
+        { "text": "选项文字1", "next_scene": "target_scene_1" },
+        { "text": "选项文字2", "next_scene": "target_scene_2" }
       ]
     },
-    "another_scene": {
-      "speaker": "另一个角色",
-      "lines": ["..."],
+    "target_scene_1": {
+      "dialogue": [
+        { "speaker": "角色C", "text": "你选择了选项1" }
+      ],
       "options": []
     }
   },
@@ -125,12 +120,18 @@ ngal
 }
 ```
 
-- speaker：当前说话人，显示在底部文本框左上角
-- lines：台词数组，按空格逐句推进
-- options：选项列表（可为空）。当台词结束后会显示选项，选择后跳转到 next_scene
+- title：主菜单顶部显示的标题（支持 emoji 和普通文字）
+- footer：主菜单底部文本框的提示文字（可加入操作说明）
+- scenes：场景字典，键为场景 ID，值为场景数据
+- dialogue：对话数组，按顺序显示。每条对话包含 speaker（说话人）和 text（台词）
+- options：选项列表（可为空）。当该场景所有对话结束后会显示选项，选择后跳转到 next_scene
 - initial_scene：游戏开始时的第一个场景 ID
 
-提示：如果某场景的 options 为空，台词结束后会自动返回主菜单。
+## ⚠ 提示：
+
+- 说话人可以是任意字符串，程序会尝试在 assets/portraits/ 中加载同名图片（如 角色A.png），若不存在则显示 ASCII 占位。
+- 如果某场景的 options 为空，对话结束后会自动返回主菜单。
+- 场景中可以任意切换说话人，无需为每个角色单独创建场景。
 
 ---
 
@@ -172,6 +173,7 @@ cargo clippy
 
 - Ratatui – 强大的终端 UI 库
 - Crossterm – 跨平台终端处理
+- image – 图片解码和缩放
 - 所有贡献者和测试者
 
 ---

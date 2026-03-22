@@ -1,16 +1,19 @@
 [package]
 name = "ngal"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "A terminal-based galgame engine written in Rust, currently still in testing"
+description = "一个用 Rust 编写的基于终端的galgame引擎，支持图片显示存档读取。"
 readme = "README.md"
 homepage = "https://nasyt.hoha.top"
 repository = "https://github.com/nasyt233/ngal"
 license = "MIT OR Apache-2.0"
+maintainer = ["NAS油条", "nasyt"]
 keywords = ["ngal", "nasyt", "galgame", "game", ]
 
 [dependencies]
-ratatui = "0.26"
+ratatui = "0.26" #ui库
 crossterm = "0.27"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+image = "0.25" # 图片解码
+anyhow = "1.0" # 简化错误处理
