@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, stdout};
 use std::panic;
 use std::path::Path;
+use std::process::{Child, Command};
 use anyhow::{anyhow, Result};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -27,8 +28,9 @@ const DEFAULT_DIALOGUE: &str = r#"{
   "scenes": {
     "start": {
       "dialogue": [
-        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。" },
-        { "speaker": "NAS油条", "text": "哪个游戏牛逼?" }
+        { "music": "music.mp3" },
+        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。", "voice": "nas_intro.mp3" },
+        { "speaker": "NAS油条", "text": "哪个游戏牛逼?", "voice": "gamenb.mp3" }
       ],
       "options": [
         { "text": "原神牛逼👍", "next_scene": "ysnb" },
@@ -37,10 +39,8 @@ const DEFAULT_DIALOGUE: &str = r#"{
     },
     "ysnb": {
       "dialogue": [
-        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓" },
-        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
-        { "speaker": "原神", "text": "鸣朝不牛逼😡" }
+        { "speaker": "鸣朝", "text": "鸣朝牛逼😡", "voice": "mcnb.mp3" },
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓", "voice": "ys_no_nb.mp3" }
       ],
       "options": [
         { "text": "鸣朝牛逼", "next_scene": "hnb" }
@@ -48,10 +48,8 @@ const DEFAULT_DIALOGUE: &str = r#"{
     },
     "mcnb": {
       "dialogue": [
-        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
-        { "speaker": "原神", "text": "鸣朝不牛逼😡" },
-        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓" }
+        { "speaker": "原神", "text": "原神牛逼🤓👍", "voice": "ysnb.mp3"},
+        { "speaker": "原神", "text": "鸣朝不牛逼😡", "voice": "mc_no_nb.mp3" }
       ],
       "options": [
         { "text": "原神牛逼", "next_scene": "hnb" }
@@ -59,7 +57,7 @@ const DEFAULT_DIALOGUE: &str = r#"{
     },
     "hnb": {
       "dialogue": [
-        { "speaker": "我", "text": "😋他们产的片才牛逼😋" },
+        { "speaker": "我", "text": "😋他们产的片才牛逼😋", "voice": "ysmcnb.mp3" },
         { "speaker": "NAS油条", "text": "游戏结束" }
       ],
       "options": []
@@ -68,12 +66,20 @@ const DEFAULT_DIALOGUE: &str = r#"{
   "initial_scene": "start"
 }"#;
 
+const DEFAULT_CONFIG: &str = r#"{
+  "bgm_volume": 70,
+  "voice_volume": 80,
+  "version": "0.3.0"
+}"#;
+
 // ---------- 数据模型 ----------
 
 #[derive(Debug, Clone, Deserialize)]
 struct DialogueLine {
-    speaker: String,
-    text: String,
+    speaker: Option<String>,
+    text: Option<String>,
+    voice: Option<String>,
+    music: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,11 +102,29 @@ struct DialogueDB {
     initial_scene: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct Config {
+    bgm_volume: u8,
+    voice_volume: u8,
+    version: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bgm_volume: 70,
+            voice_volume: 80,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+}
+
 // ---------- 游戏状态 ----------
 
 #[derive(Serialize, Deserialize, Clone)]
 enum AppState {
     Menu,
+    Settings,                    // 新增设置界面
     InDialogue {
         scene_id: String,
         line_index: usize,
@@ -124,6 +148,14 @@ enum ChoiceAction {
     Exit,
     Save,
     Load,
+}
+
+enum SettingsAction {
+    BgmUp,
+    BgmDown,
+    VoiceUp,
+    VoiceDown,
+    Save,
 }
 
 // ---------- 图片绘制辅助 ----------
@@ -213,8 +245,12 @@ struct App {
     selected: usize,
     status_message: Option<String>,
     db: DialogueDB,
+    config: Config,
     portraits: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    should_quit: bool, // 新增标志位，用于安全退出
+    logo: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    should_quit: bool,
+    bgm_process: Option<Child>,
+    voice_process: Option<Child>,
 }
 
 impl App {
@@ -222,7 +258,9 @@ impl App {
         Self::ensure_directories()?;
         let db_content = Self::ensure_dialogue_file()?;
         let db: DialogueDB = serde_json::from_str(&db_content)?;
+        let config = Self::load_config()?;
 
+        // 加载角色图片
         let mut portraits = HashMap::new();
         let portraits_dir = Path::new("assets/portraits");
         if portraits_dir.exists() {
@@ -239,10 +277,27 @@ impl App {
             }
         }
 
+        // 加载 logo
+        let logo_path = Path::new("assets/portraits/title.png");
+        let logo = if logo_path.exists() {
+            Self::load_image(logo_path).ok()
+        } else {
+            None
+        };
+
+        // 启动默认背景音乐（如果有）
+        let bgm_path = Path::new("assets/music/bgm.mp3");
+        let bgm_process = if bgm_path.exists() {
+            Self::play_audio(&bgm_path, true, config.bgm_volume).ok()
+        } else {
+            None
+        };
+
         Ok(Self {
             state: AppState::Menu,
             menu_options: vec![
                 "开始游戏".to_string(),
+                "设置".to_string(),
                 "存档".to_string(),
                 "读档".to_string(),
                 "退出".to_string(),
@@ -250,8 +305,12 @@ impl App {
             selected: 0,
             status_message: None,
             db,
+            config,
             portraits,
+            logo,
             should_quit: false,
+            bgm_process,
+            voice_process: None,
         })
     }
 
@@ -272,6 +331,12 @@ impl App {
         if !Path::new("assets/portraits").exists() {
             fs::create_dir("assets/portraits")?;
         }
+        if !Path::new("assets/music").exists() {
+            fs::create_dir("assets/music")?;
+        }
+        if !Path::new("assets/voices").exists() {
+            fs::create_dir("assets/voices")?;
+        }
         if !Path::new("save").exists() {
             fs::create_dir("save")?;
         }
@@ -288,14 +353,104 @@ impl App {
         }
     }
 
+    fn load_config() -> Result<Config> {
+        let path = Path::new("assets/config.json");
+        if !path.exists() {
+            fs::write(path, DEFAULT_CONFIG)?;
+            Ok(Config::default())
+        } else {
+            let content = fs::read_to_string(path)?;
+            Ok(serde_json::from_str(&content)?)
+        }
+    }
+
+    fn save_config(&self) -> io::Result<()> {
+        let path = Path::new("assets/config.json");
+        let json = serde_json::to_string_pretty(&self.config)?;
+        fs::write(path, json)
+    }
+
+    fn play_audio(path: &Path, background: bool, volume: u8) -> Result<Child> {
+        if !path.exists() {
+            return Err(anyhow!("音频文件不存在: {}", path.display()));
+        }
+        let volume_str = format!("{}", volume);
+        let mut cmd = Command::new("mpv");
+        cmd.arg("--no-video")
+            .arg("--really-quiet")
+            .arg("--vo=null")
+            .arg("--no-window-dragging")
+            .arg("--no-input-default-bindings")
+            .arg("--no-input-cursor")
+            .arg(format!("--volume={}", volume_str))
+            .arg(path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        if background {
+            cmd.arg("--loop=inf");
+        }
+        Ok(cmd.spawn()?)
+    }
+
+    fn stop_voice(&mut self) {
+        if let Some(mut child) = self.voice_process.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    fn stop_bgm(&mut self) {
+        if let Some(mut child) = self.bgm_process.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    fn play_bgm(&mut self, filename: &str) {
+        self.stop_bgm();
+        let music_path = Path::new("assets/music").join(filename);
+        if music_path.exists() {
+            if let Ok(child) = Self::play_audio(&music_path, true, self.config.bgm_volume) {
+                self.bgm_process = Some(child);
+            }
+        }
+    }
+
+    fn play_voice_by_file(&mut self, speaker: &str, voice_filename: Option<&str>) {
+        self.stop_voice();
+        let filename = if let Some(name) = voice_filename {
+            name.to_string()
+        } else {
+            format!("{}.mp3", speaker)
+        };
+        let voice_path = Path::new("assets/voices").join(&filename);
+        if voice_path.exists() {
+            if let Ok(child) = Self::play_audio(&voice_path, false, self.config.voice_volume) {
+                self.voice_process = Some(child);
+            }
+        }
+    }
+
+    fn play_voice_for_line(&mut self, line: &DialogueLine) {
+        if let (Some(speaker), Some(_text)) = (&line.speaker, &line.text) {
+            self.play_voice_by_file(speaker, line.voice.as_deref());
+        }
+    }
+
     fn execute_menu(&mut self) {
         match self.selected {
             0 => self.start_game(),
-            1 => self.save_game(),
-            2 => self.load_game(),
-            3 => self.quit_game(),
+            1 => self.open_settings(),
+            2 => self.save_game(),
+            3 => self.load_game(),
+            4 => self.quit_game(),
             _ => {}
         }
+    }
+
+    fn open_settings(&mut self) {
+        self.state = AppState::Settings;
+        self.status_message = None;
     }
 
     fn quit_game(&mut self) {
@@ -303,9 +458,35 @@ impl App {
     }
 
     fn start_game(&mut self) {
+        let initial_scene = self.db.initial_scene.clone();
+        let (music_files, first_line) = if let Some(scene) = self.db.scenes.get(&initial_scene) {
+            let mut music_files = Vec::new();
+            let mut line_index = 0;
+            while let Some(line) = scene.dialogue.get(line_index) {
+                if let Some(music_file) = &line.music {
+                    music_files.push(music_file.clone());
+                    line_index += 1;
+                } else {
+                    break;
+                }
+            }
+            let first_line = scene.dialogue.get(line_index).cloned();
+            (music_files, first_line)
+        } else {
+            (Vec::new(), None)
+        };
+
+        for music_file in &music_files {
+            self.play_bgm(music_file);
+        }
+
+        if let Some(first_line) = first_line {
+            self.play_voice_for_line(&first_line);
+        }
+
         self.state = AppState::InDialogue {
-            scene_id: self.db.initial_scene.clone(),
-            line_index: 0,
+            scene_id: initial_scene,
+            line_index: music_files.len(),
         };
         self.status_message = None;
     }
@@ -338,6 +519,10 @@ impl App {
                     self.state = data.state;
                     self.selected = data.menu_selected;
                     self.status_message = Some("读档成功".to_string());
+                    let current_line = self.current_dialogue_line().cloned();
+                    if let Some(line) = current_line {
+                        self.play_voice_for_line(&line);
+                    }
                 }
                 Err(e) => {
                     self.status_message = Some(format!("解析存档失败：{}", e));
@@ -353,67 +538,203 @@ impl App {
         match &self.state {
             AppState::InDialogue { scene_id, line_index } => {
                 if let Some(scene) = self.db.scenes.get(scene_id) {
-                    if *line_index < scene.dialogue.len() {
-                        return Some(&scene.dialogue[*line_index]);
-                    }
+                    scene.dialogue.get(*line_index)
+                } else {
+                    None
                 }
-                None
             }
             _ => None,
         }
     }
 
     fn current_speaker(&self) -> Option<String> {
-        self.current_dialogue_line().map(|line| line.speaker.clone())
+        self.current_dialogue_line()
+            .and_then(|line| line.speaker.clone())
     }
 
     fn current_text(&self) -> Option<String> {
-        self.current_dialogue_line().map(|line| line.text.clone())
+        self.current_dialogue_line()
+            .and_then(|line| line.text.clone())
     }
 
     fn advance_dialogue(&mut self) {
-        match &self.state {
-            AppState::InDialogue { scene_id, line_index } => {
-                if let Some(scene) = self.db.scenes.get(scene_id) {
-                    let next_line = line_index + 1;
-                    if next_line < scene.dialogue.len() {
-                        self.state = AppState::InDialogue {
-                            scene_id: scene_id.clone(),
-                            line_index: next_line,
-                        };
-                    } else if !scene.options.is_empty() {
-                        let options: Vec<(String, String)> = scene
-                            .options
-                            .iter()
-                            .map(|opt| (opt.text.clone(), opt.next_scene.clone()))
-                            .collect();
-                        self.state = AppState::InChoice {
-                            scene_id: scene_id.clone(),
-                            options,
-                            selected: 0,
-                        };
-                    } else {
-                        self.state = AppState::Menu;
-                    }
-                } else {
+        let (current_scene_id, current_line_index) = match &self.state {
+            AppState::InDialogue { scene_id, line_index } => (scene_id.clone(), *line_index),
+            _ => return,
+        };
+
+        let (next_index, music_files, next_line) = {
+            let scene = match self.db.scenes.get(&current_scene_id) {
+                Some(s) => s,
+                None => {
                     self.state = AppState::Menu;
+                    return;
+                }
+            };
+
+            let mut next_index = current_line_index + 1;
+            let mut music_files = Vec::new();
+
+            while let Some(line) = scene.dialogue.get(next_index) {
+                if let Some(music_file) = &line.music {
+                    music_files.push(music_file.clone());
+                    next_index += 1;
+                } else {
+                    break;
                 }
             }
-            _ => {}
+
+            let next_line = scene.dialogue.get(next_index).cloned();
+            (next_index, music_files, next_line)
+        };
+
+        for music_file in &music_files {
+            self.play_bgm(music_file);
+        }
+
+        if let Some(next_line) = next_line {
+            self.state = AppState::InDialogue {
+                scene_id: current_scene_id,
+                line_index: next_index,
+            };
+            self.play_voice_for_line(&next_line);
+        } else {
+            let scene = match self.db.scenes.get(&current_scene_id) {
+                Some(s) => s,
+                None => {
+                    self.state = AppState::Menu;
+                    return;
+                }
+            };
+            if !scene.options.is_empty() {
+                let options: Vec<(String, String)> = scene
+                    .options
+                    .iter()
+                    .map(|opt| (opt.text.clone(), opt.next_scene.clone()))
+                    .collect();
+                self.stop_voice();
+                self.state = AppState::InChoice {
+                    scene_id: current_scene_id,
+                    options,
+                    selected: 0,
+                };
+            } else {
+                self.stop_voice();
+                self.state = AppState::Menu;
+            }
         }
     }
 
     fn select_option(&mut self) {
-        match &self.state {
-            AppState::InChoice { options, selected, .. } => {
-                if let Some((_, next_scene)) = options.get(*selected) {
-                    self.state = AppState::InDialogue {
-                        scene_id: next_scene.clone(),
-                        line_index: 0,
-                    };
+        let (current_scene_id, selected_idx) = match &self.state {
+            AppState::InChoice { scene_id, selected, .. } => (scene_id.clone(), *selected),
+            _ => return,
+        };
+
+        let next_scene_id = {
+            let scene = match self.db.scenes.get(&current_scene_id) {
+                Some(s) => s,
+                None => return,
+            };
+            if let Some(opt) = scene.options.get(selected_idx) {
+                opt.next_scene.clone()
+            } else {
+                return;
+            }
+        };
+
+        let (music_files, first_line) = {
+            let next_scene = match self.db.scenes.get(&next_scene_id) {
+                Some(s) => s,
+                None => return,
+            };
+            let mut music_files = Vec::new();
+            let mut line_index = 0;
+            while let Some(line) = next_scene.dialogue.get(line_index) {
+                if let Some(music_file) = &line.music {
+                    music_files.push(music_file.clone());
+                    line_index += 1;
+                } else {
+                    break;
                 }
             }
-            _ => {}
+            let first_line = next_scene.dialogue.get(line_index).cloned();
+            (music_files, first_line)
+        };
+
+        for music_file in &music_files {
+            self.play_bgm(music_file);
+        }
+
+        if let Some(first_line) = first_line {
+            self.play_voice_for_line(&first_line);
+        }
+
+        self.state = AppState::InDialogue {
+            scene_id: next_scene_id,
+            line_index: music_files.len(),
+        };
+    }
+
+    fn handle_settings(&mut self, action: SettingsAction) -> bool {
+        match action {
+            SettingsAction::BgmUp => {
+                if self.config.bgm_volume <= 90 {
+                    self.config.bgm_volume += 10;
+                    // 重启背景音乐以应用新音量
+                    if self.bgm_process.is_some() {
+                        self.stop_bgm();
+                        if let Some(bgm_path) = self.get_current_bgm_path() {
+                            let _ = Self::play_audio(&bgm_path, true, self.config.bgm_volume)
+                                .map(|child| self.bgm_process = Some(child));
+                        }
+                    }
+                    self.status_message = Some(format!("BGM音量: {}%", self.config.bgm_volume));
+                }
+            }
+            SettingsAction::BgmDown => {
+                if self.config.bgm_volume >= 10 {
+                    self.config.bgm_volume -= 10;
+                    if self.bgm_process.is_some() {
+                        self.stop_bgm();
+                        if let Some(bgm_path) = self.get_current_bgm_path() {
+                            let _ = Self::play_audio(&bgm_path, true, self.config.bgm_volume)
+                                .map(|child| self.bgm_process = Some(child));
+                        }
+                    }
+                    self.status_message = Some(format!("BGM音量: {}%", self.config.bgm_volume));
+                }
+            }
+            SettingsAction::VoiceUp => {
+                if self.config.voice_volume <= 90 {
+                    self.config.voice_volume += 10;
+                    self.status_message = Some(format!("语音音量: {}%", self.config.voice_volume));
+                }
+            }
+            SettingsAction::VoiceDown => {
+                if self.config.voice_volume >= 10 {
+                    self.config.voice_volume -= 10;
+                    self.status_message = Some(format!("语音音量: {}%", self.config.voice_volume));
+                }
+            }
+            SettingsAction::Save => {
+                if let Err(e) = self.save_config() {
+                    self.status_message = Some(format!("保存配置失败: {}", e));
+                } else {
+                    self.status_message = Some("配置已保存".to_string());
+                }
+            }
+        }
+        false
+    }
+
+    fn get_current_bgm_path(&self) -> Option<std::path::PathBuf> {
+        // 简化：返回默认背景音乐路径
+        let bgm_path = Path::new("assets/music/bgm.mp3");
+        if bgm_path.exists() {
+            Some(bgm_path.to_path_buf())
+        } else {
+            None
         }
     }
 
@@ -440,12 +761,37 @@ impl App {
                 }
                 return;
             }
+            AppState::Settings => {
+                match key {
+                    KeyCode::Char('+') | KeyCode::Char('=') => {
+                        self.handle_settings(SettingsAction::BgmUp);
+                    }
+                    KeyCode::Char('-') | KeyCode::Char('_') => {
+                        self.handle_settings(SettingsAction::BgmDown);
+                    }
+                    KeyCode::Char('[') => {
+                        self.handle_settings(SettingsAction::VoiceDown);
+                    }
+                    KeyCode::Char(']') => {
+                        self.handle_settings(SettingsAction::VoiceUp);
+                    }
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        self.handle_settings(SettingsAction::Save);
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.state = AppState::Menu;
+                    }
+                    _ => {}
+                }
+                return;
+            }
             AppState::InDialogue { .. } => {
                 match key {
                     KeyCode::Char(' ') | KeyCode::Enter => {
                         self.advance_dialogue();
                     }
                     KeyCode::Esc => {
+                        self.stop_voice();
                         self.state = AppState::Menu;
                     }
                     KeyCode::Char('s') | KeyCode::Char('S') => {
@@ -489,7 +835,10 @@ impl App {
         if let Some(action) = action {
             match action {
                 ChoiceAction::Select => self.select_option(),
-                ChoiceAction::Exit => self.state = AppState::Menu,
+                ChoiceAction::Exit => {
+                    self.stop_voice();
+                    self.state = AppState::Menu;
+                }
                 ChoiceAction::Save => self.save_game(),
                 ChoiceAction::Load => self.load_game(),
             }
@@ -532,6 +881,20 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
 
     match &app.state {
         AppState::Menu => {
+            let mut y_offset = 0;
+
+            // 绘制 Logo
+            if let Some(logo) = &app.logo {
+                let logo_area = Rect {
+                    x: inner_area.x,
+                    y: inner_area.y,
+                    width: inner_area.width,
+                    height: 6.min(inner_area.height),
+                };
+                draw_portrait(frame, logo_area, logo);
+                y_offset = 6;
+            }
+
             let title = &app.db.title;
             let title_paragraph = Paragraph::new(vec![
                 Line::from(vec![
@@ -556,12 +919,13 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
 
             let title_area = Rect {
                 x: inner_area.x,
-                y: inner_area.y,
+                y: inner_area.y + y_offset,
                 width: inner_area.width,
                 height: 4,
             };
             frame.render_widget(title_paragraph, title_area);
 
+            // 菜单列表
             let items: Vec<ListItem> = app
                 .menu_options
                 .iter()
@@ -583,38 +947,101 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)));
 
             let list_height = app.menu_options.len() as u16 * 2;
-            let start_y = inner_area.y + (inner_area.height.saturating_sub(list_height + 4)) / 2 + 4;
+            let start_y = inner_area.y + y_offset + 4 + (inner_area.height.saturating_sub(y_offset + 4 + list_height)) / 2;
             let list_area = Rect {
                 x: inner_area.x + (inner_area.width.saturating_sub(30)) / 2,
                 y: start_y,
                 width: 30.min(inner_area.width),
-                height: list_height.min(inner_area.height.saturating_sub(4)),
+                height: list_height.min(inner_area.height.saturating_sub(y_offset + 4)),
             };
             frame.render_widget(list, list_area);
+
+            // 右下角版本信息
+            let version_text = format!("ngal v{}", app.config.version);
+            let version_paragraph = Paragraph::new(version_text)
+                .style(Style::default().fg(Color::Rgb(150, 150, 150)))
+                .alignment(Alignment::Right);
+            let version_area = Rect {
+                x: inner_area.x + inner_area.width - 15,
+                y: inner_area.y + inner_area.height - 1,
+                width: 15,
+                height: 1,
+            };
+            frame.render_widget(version_paragraph, version_area);
+        }
+        AppState::Settings => {
+            // 设置界面
+            let settings_text = vec![
+                Line::from(vec![
+                    Span::styled("⚙️ 音量设置", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD))
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("BGM 音量: "),
+                    Span::styled(format!("{}%", app.config.bgm_volume), Style::default().fg(Color::Rgb(100, 255, 100))),
+                    Span::raw("  (+/- 调节)"),
+                ]),
+                Line::from(vec![
+                    Span::raw("语音音量: "),
+                    Span::styled(format!("{}%", app.config.voice_volume), Style::default().fg(Color::Rgb(100, 255, 100))),
+                    Span::raw("  ([ ] 调节)"),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("按 S 保存配置 | ESC 返回", Style::default().fg(Color::Rgb(150, 150, 150)))
+                ]),
+            ];
+            let settings_paragraph = Paragraph::new(settings_text)
+                .style(Style::default().fg(Color::Rgb(255, 255, 255)))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::NONE));
+            let settings_area = Rect {
+                x: inner_area.x,
+                y: inner_area.y + (inner_area.height.saturating_sub(6)) / 2,
+                width: inner_area.width,
+                height: 6,
+            };
+            frame.render_widget(settings_paragraph, settings_area);
+
+            // 显示状态消息
+            if let Some(msg) = &app.status_message {
+                let msg_paragraph = Paragraph::new(msg.as_str())
+                    .style(Style::default().fg(Color::Rgb(255, 255, 0)))
+                    .alignment(Alignment::Center);
+                let msg_area = Rect {
+                    x: inner_area.x,
+                    y: inner_area.y + inner_area.height - 3,
+                    width: inner_area.width,
+                    height: 1,
+                };
+                frame.render_widget(msg_paragraph, msg_area);
+            }
         }
         AppState::InDialogue { .. } => {
             if let Some(line) = app.current_dialogue_line() {
-                if let Some(img) = app.portraits.get(&line.speaker) {
-                    draw_portrait(frame, inner_area, img);
-                } else {
-                    let art = match line.speaker.as_str() {
-                        "NAS油条" => "   🍳  NAS油条  🍳",
-                        "鸣朝"    => "   ⚔️  鸣朝  ⚔️",
-                        "原神"    => "   ✨  原神  ✨",
-                        _ => "   （暂无立绘）",
-                    };
-                    let text = format!("{}\n\n{}", art, line.speaker);
-                    let para = Paragraph::new(text)
-                        .style(Style::default().fg(Color::Rgb(212, 112, 212)))
-                        .alignment(Alignment::Center)
-                        .wrap(Wrap { trim: true });
-                    let para_area = Rect {
-                        x: inner_area.x,
-                        y: inner_area.y + (inner_area.height.saturating_sub(5)) / 2,
-                        width: inner_area.width,
-                        height: 5.min(inner_area.height),
-                    };
-                    frame.render_widget(para, para_area);
+                if let (Some(speaker), Some(_text)) = (&line.speaker, &line.text) {
+                    if let Some(img) = app.portraits.get(speaker) {
+                        draw_portrait(frame, inner_area, img);
+                    } else {
+                        let art = match speaker.as_str() {
+                            "NAS油条" => "   🍳  NAS油条  🍳",
+                            "鸣朝"    => "   ⚔️  鸣朝  ⚔️",
+                            "原神"    => "   ✨  原神  ✨",
+                            _ => "   （暂无立绘）",
+                        };
+                        let text = format!("{}\n\n{}", art, speaker);
+                        let para = Paragraph::new(text)
+                            .style(Style::default().fg(Color::Rgb(212, 112, 212)))
+                            .alignment(Alignment::Center)
+                            .wrap(Wrap { trim: true });
+                        let para_area = Rect {
+                            x: inner_area.x,
+                            y: inner_area.y + (inner_area.height.saturating_sub(5)) / 2,
+                            width: inner_area.width,
+                            height: 5.min(inner_area.height),
+                        };
+                        frame.render_widget(para, para_area);
+                    }
                 }
             }
         }
@@ -665,6 +1092,11 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
             format!("{} | q 退出", app.db.footer),
             app.status_message.as_deref(),
         ),
+        AppState::Settings => (
+            "设置".to_string(),
+            "按 +/- 调节BGM音量，[ ] 调节语音音量，S 保存，ESC/q 返回".to_string(),
+            app.status_message.as_deref(),
+        ),
         AppState::InDialogue { .. } => (
             app.current_speaker().unwrap_or_else(|| "?".to_string()),
             app.current_text().unwrap_or_else(|| "".to_string()),
@@ -710,7 +1142,6 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
 // ---------- 主函数 ----------
 
 fn main() -> anyhow::Result<()> {
-    // 设置 panic hook
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         let _ = disable_raw_mode();
@@ -741,7 +1172,9 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // 恢复终端
+    app.stop_voice();
+    app.stop_bgm();
+
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

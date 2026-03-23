@@ -4,8 +4,9 @@
   "scenes": {
     "start": {
       "dialogue": [
-        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。" },
-        { "speaker": "NAS油条", "text": "哪个游戏牛逼?" }
+        { "music": "music.mp3" },
+        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。", "voice": "nas_intro.mp3" },
+        { "speaker": "NAS油条", "text": "哪个游戏牛逼?", "voice": "gamenb.mp3" }
       ],
       "options": [
         { "text": "原神牛逼👍", "next_scene": "ysnb" },
@@ -14,10 +15,10 @@
     },
     "ysnb": {
       "dialogue": [
-        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓" },
-        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
-        { "speaker": "原神", "text": "鸣朝不牛逼😡" }
+        { "speaker": "鸣朝", "text": "鸣朝牛逼😡", "voice": "mcnb.mp3" },
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓", "voice": "ys_no_nb.mp3" },
+        { "speaker": "原神", "text": "原神牛逼🤓👍", "voice": "ysnb.mp3"},
+        { "speaker": "原神", "text": "鸣朝不牛逼😡", "voice": "mc_no_nb.mp3" }
       ],
       "options": [
         { "text": "鸣朝牛逼", "next_scene": "hnb" }
@@ -25,10 +26,10 @@
     },
     "mcnb": {
       "dialogue": [
-        { "speaker": "原神", "text": "原神才牛逼🤓👍" },
-        { "speaker": "原神", "text": "鸣朝不牛逼😡" },
-        { "speaker": "鸣朝", "text": "鸣朝才牛逼😡" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓" }
+        { "speaker": "原神", "text": "原神牛逼🤓👍", "voice": "ysnb.mp3"},
+        { "speaker": "原神", "text": "鸣朝不牛逼😡", "voice": "mc_no_nb.mp3" },
+        { "speaker": "鸣朝", "text": "鸣朝牛逼😡", "voice": "mcnb.mp3" },
+        { "speaker": "鸣朝", "text": "原神不牛逼🤓", "voice": "ys_no_nb.mp3" }
       ],
       "options": [
         { "text": "原神牛逼", "next_scene": "hnb" }
@@ -36,7 +37,7 @@
     },
     "hnb": {
       "dialogue": [
-        { "speaker": "我", "text": "😋他们产的片才牛逼😋" },
+        { "speaker": "我", "text": "😋他们产的片才牛逼😋", "voice": "ysmcnb.mp3" },
         { "speaker": "NAS油条", "text": "游戏结束" }
       ],
       "options": []
