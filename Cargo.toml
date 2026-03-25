@@ -1,6 +1,6 @@
 [package]
 name = "ngal"
-version = "0.4.1"
+version = "0.5"
 edition = "2024"
 description = "一个用 Rust 编写的基于终端的galgame引擎，支持图片显示存档读取。"
 readme = "README.md"
