@@ -36,7 +36,7 @@ jobs:
       run: cargo clippy --all-targets --all-features -- -D warnings
 
     - name: Build Release
-      run: cargo build --release -p nweb --locked
+      run: cargo build --release --locked
 
     - name: Run tests
       run: cargo test --release
