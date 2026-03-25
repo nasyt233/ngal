@@ -1,3 +1,4 @@
+use std::path::Path;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -61,7 +62,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 y_offset = 6;
             }
 
-            let title = &app.db.title;
+            let title = &app.title;
             let title_para = Paragraph::new(vec![
                 Line::from(vec![
                     Span::styled("✨", Style::default().fg(Color::Rgb(255, 255, 0))),
@@ -251,30 +252,27 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             frame.render_stateful_widget(list, history_area, &mut list_state);
         }
         crate::app::AppState::InDialogue { .. } => {
-            if let Some(line) = app.current_dialogue_line() {
-                if let (Some(speaker), Some(_text)) = (&line.speaker, &line.text) {
-                    if let Some(img) = app.portraits.get(speaker) {
-                        image::draw_portrait(frame, inner, img);
-                    } else {
-                        let art = match speaker.as_str() {
-                            "NAS油条" => "   🍳  NAS油条  🍳",
-                            "鸣朝"    => "   ⚔️  鸣朝  ⚔️",
-                            "原神"    => "   ✨  原神  ✨",
-                            _ => "   （暂无立绘）",
-                        };
-                        let text = format!("{}\n\n{}", art, speaker);
-                        let para = Paragraph::new(text)
-                            .style(Style::default().fg(Color::Rgb(212, 112, 212)).bg(Color::Rgb(40, 30, 50)))
-                            .alignment(Alignment::Center)
-                            .wrap(Wrap { trim: true });
-                        let para_area = Rect {
-                            x: inner.x,
-                            y: inner.y + (inner.height.saturating_sub(5)) / 2,
-                            width: inner.width,
-                            height: 5.min(inner.height),
-                        };
-                        frame.render_widget(para, para_area);
-                    }
+            // 显示立绘
+            if let Some(img_filename) = &app.current_image {
+                let img_path = Path::new("assets/portraits").join(img_filename);
+                if let Ok(img) = image::load_image(&img_path) {
+                    image::draw_portrait(frame, inner, &img);
+                } else {
+                    let text = format!("图片加载失败: {}", img_filename);
+                    let para = Paragraph::new(text)
+                        .style(Style::default().fg(Color::Rgb(212, 112, 212)))
+                        .alignment(Alignment::Center);
+                    frame.render_widget(para, inner);
+                }
+            } else {
+                // 无图片时显示空白
+                // 可以显示角色名字或留空
+                if let Some(speaker) = app.current_speaker() {
+                    let text = format!("{} 正在说话...", speaker);
+                    let para = Paragraph::new(text)
+                        .style(Style::default().fg(Color::Rgb(150, 150, 150)))
+                        .alignment(Alignment::Center);
+                    frame.render_widget(para, inner);
                 }
             }
         }
@@ -326,7 +324,7 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
     let (speaker, content, status) = match &app.state {
         crate::app::AppState::Menu => (
             "系统".to_string(),
-            format!("{} | q 退出", app.db.footer),
+            format!("{} | q 退出", app.footer),
             app.status_message.as_deref(),
         ),
         crate::app::AppState::Settings => (

@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 
 pub const DEFAULT_CONFIG: &str = r#"{
-  "bgm_volume": 70,
+  "bgm_volume": 50,
   "voice_volume": 80,
   "auto_play": false,
   "auto_play_speed": 2.0,

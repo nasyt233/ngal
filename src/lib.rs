@@ -1,5 +1,6 @@
+pub mod defaults;
+pub mod parser;
 pub mod config;
-pub mod dialogue;
 pub mod audio;
 pub mod image;
 pub mod app;

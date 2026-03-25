@@ -18,6 +18,7 @@ pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     Ok(img.to_rgba8())
 }
 
+
 /// 在指定区域绘制图片（使用半块字符，居中缩放）
 pub fn draw_portrait(
     frame: &mut Frame,
