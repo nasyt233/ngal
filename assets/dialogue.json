@@ -1,12 +1,12 @@
 {
   "title": "原神 VS 鸣朝",
-  "footer": "按回车继续 | q 退出",
+  "footer": "按回车继续 | H 历史 | A 自动播放",
   "scenes": {
     "start": {
       "dialogue": [
         { "music": "music.mp3" },
-        { "speaker": "NAS油条", "text": "本项目由Rust语言开发，按回车键继续。", "voice": "nas_intro.mp3" },
-        { "speaker": "NAS油条", "text": "哪个游戏牛逼?", "voice": "gamenb.mp3" }
+        "NAS油条:本项目由Rust语言开发，按回车键继续。:nas_intro.mp3",
+        "NAS油条:哪个游戏牛逼?:gamenb.mp3"
       ],
       "options": [
         { "text": "原神牛逼👍", "next_scene": "ysnb" },
@@ -15,10 +15,10 @@
     },
     "ysnb": {
       "dialogue": [
-        { "speaker": "鸣朝", "text": "鸣朝牛逼😡", "voice": "mcnb.mp3" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓", "voice": "ys_no_nb.mp3" },
-        { "speaker": "原神", "text": "原神牛逼🤓👍", "voice": "ysnb.mp3"},
-        { "speaker": "原神", "text": "鸣朝不牛逼😡", "voice": "mc_no_nb.mp3" }
+        "鸣朝:鸣朝才牛逼😡:mcnb.mp3",
+        "鸣朝:原神不牛逼🤓:ys_no_nb.mp3",
+        "原神:原神才牛逼🤓👍:ysnb.mp3",
+        "原神:鸣朝不牛逼😡:mc_no_nb.mp3"
       ],
       "options": [
         { "text": "鸣朝牛逼", "next_scene": "hnb" }
@@ -26,10 +26,10 @@
     },
     "mcnb": {
       "dialogue": [
-        { "speaker": "原神", "text": "原神牛逼🤓👍", "voice": "ysnb.mp3"},
-        { "speaker": "原神", "text": "鸣朝不牛逼😡", "voice": "mc_no_nb.mp3" },
-        { "speaker": "鸣朝", "text": "鸣朝牛逼😡", "voice": "mcnb.mp3" },
-        { "speaker": "鸣朝", "text": "原神不牛逼🤓", "voice": "ys_no_nb.mp3" }
+        "原神:原神才牛逼🤓👍:ysnb.mp3",
+        "原神:鸣朝不牛逼😡:mc_no_nb.mp3",
+        "鸣朝:鸣朝才牛逼😡:mcnb.mp3",
+        "鸣朝:原神不牛逼🤓:ys_no_nb.mp3"
       ],
       "options": [
         { "text": "原神牛逼", "next_scene": "hnb" }
@@ -37,8 +37,8 @@
     },
     "hnb": {
       "dialogue": [
-        { "speaker": "我", "text": "😋他们产的片才牛逼😋", "voice": "ysmcnb.mp3" },
-        { "speaker": "NAS油条", "text": "游戏结束" }
+        "我:😋他们产的片才牛逼😋:ysmcnb.mp3",
+        "NAS油条:游戏结束"
       ],
       "options": []
     }

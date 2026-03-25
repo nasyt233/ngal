@@ -1,6 +1,6 @@
 [package]
 name = "ngal"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "一个用 Rust 编写的基于终端的galgame引擎，支持图片显示存档读取。"
 readme = "README.md"
@@ -11,9 +11,9 @@ maintainer = ["NAS油条", "nasyt"]
 keywords = ["ngal", "nasyt", "galgame", "game", ]
 
 [dependencies]
-ratatui = "0.26" #ui库
+ratatui = "0.26"
 crossterm = "0.27"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-image = "0.25" # 图片解码
-anyhow = "1.0" # 简化错误处理
+image = "0.25"
+anyhow = "1.0"

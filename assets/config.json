@@ -1,5 +1,7 @@
 {
-  "bgm_volume": 50,
-  "voice_volume": 90,
-  "version": "0.2.0"
+  "bgm_volume": 70,
+  "voice_volume": 80,
+  "auto_play": false,
+  "auto_play_speed": 2.0,
+  "version": "0.4.0"
 }
