@@ -8,7 +8,7 @@ pub const DEFAULT_CONFIG: &str = r#"{
   "voice_volume": 80,
   "auto_play": false,
   "auto_play_speed": 2.0,
-  "version": "0.4.0"
+  "version": "0.5.0"
 }"#;
 
 #[derive(Serialize, Deserialize, Clone)]
