@@ -120,39 +120,73 @@ ngal
 ```
 
 3. 音乐指令
-
+```txt
+music:music.mp3
+```
+或者
 ```json
 { "music": "bgm.mp3" }
 ```
 
+4. img命令
+```txt
+直接显示图片
+img:NAS油条.png
+```
+或者参数显示图片
+```txt
+img:NAS油条.png:3:50%
+
+解释
+(显示1.png图片在1位置,大小为50%)
+(但是大小设置好像有问题)
+(1=左面 2=中间 3=右面)
+```
+
+5. input命令
+- 用于读取用户输入
+- 支持手动设置变量(a=小明)
+- 名字无法设置变量(解决中)
+```txt
+input:请输入名字:name
+```
+
 ## 完整示例
 
-```json
-{
-  "title": "你的游戏标题",
-  "footer": "按回车继续 | q 返回主菜单 | H 历史 | A 自动播放",
-  "scenes": {
-    "start": {
-      "dialogue": [
-        { "music": "opening.mp3" },
-        "旁白：故事开始了...",
-        "主角：你好，世界！:greeting.mp3",
-        "NPC：欢迎来到提瓦特大陆"
-      ],
-      "options": [
-        { "text": "前往蒙德", "next_scene": "mond" },
-        { "text": "前往璃月", "next_scene": "liyue" }
-      ]
-    },
-    "mond": {
-      "dialogue": [
-        "温迪：呀吼！要听我唱歌吗？:venti_song.mp3",
-        "主角：好啊"
-      ],
-      "options": []
-    }
-  },
-  "initial_scene": "start"
+```txt
+[welcome]
+music:title.mp3
+img:NAS油条.png:3:50%
+NAS油条:本项目由Rust语言开发\n按回车键继续:nas_intro.mp3
+img:
+input:请输入你的名字:name
+NAS油条:好的，{name}，哪个游戏牛逼?:gamenb.mp3
+choose:原神牛逼:ysnb|鸣朝牛逼:mcnb|终末地牛逼:zmd
+
+[ysnb]
+bg:91.png
+img:鸣朝.png:3:35%
+鸣朝:鸣朝才牛逼😡:mcnb.mp3
+鸣朝:原神不牛逼🤓:ys_no_nb.mp3
+load:ytnb
+
+[mcnb]
+img:原神.png
+原神:原神才牛逼🤓👍:ysnb.mp3
+原神:鸣朝不牛逼😡:mc_no_nb.mp3
+load:ytnb
+
+[zmd]
+img:终末地.png
+终末地:我最牛逼
+end
+
+[ytnb]
+img:我.png
+我:😋他们产的片才牛逼😋:ysmcnb.mp3
+bg:
+NAS油条:游戏结束
+end
 }
 ```
 
