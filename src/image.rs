@@ -7,7 +7,7 @@ use ratatui::{
 };
 use std::path::Path;
 
-/// 加载图片为 RGBA8 格式
+
 pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let img = ImageReader::open(path)
         .map_err(|e| anyhow!("无法打开图片 {}: {}", path.display(), e))?
@@ -19,74 +19,74 @@ pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
 }
 
 
-/// 在指定区域绘制图片（使用半块字符，居中缩放）
+
+
 pub fn draw_portrait(
     frame: &mut Frame,
     area: Rect,
     img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    position: usize,
+    _scale_percent: u8,
 ) {
     let (img_w, img_h) = img.dimensions();
     let area_w = area.width as usize;
     let area_h = area.height as usize;
 
-    let target_px_w = area_w;
     let target_px_h = area_h * 2;
-
-    let scale_w = target_px_w as f64 / img_w as f64;
-    let scale_h = target_px_h as f64 / img_h as f64;
-    let scale = scale_w.min(scale_h);
-    if scale <= 0.0 {
+    // 缩放图片使得高度等于 target_px_h（保持宽高比）
+    let scale = target_px_h as f64 / img_h as f64;
+    let target_w = (img_w as f64 * scale) as u32;
+    let target_h = target_px_h as u32;
+    if target_w == 0 || target_h == 0 {
         return;
     }
 
-    let new_w = (img_w as f64 * scale) as u32;
-    let new_h = (img_h as f64 * scale) as u32;
-    if new_w == 0 || new_h == 0 {
-        return;
-    }
-
+    // 缩放图片（使用 Triangle 算法，质量较好）
     let resized = image::imageops::resize(
         img,
-        new_w,
-        new_h,
+        target_w,
+        target_h,
         image::imageops::FilterType::Triangle,
     );
 
-    let char_h = (new_h + 1) / 2;
-    let offset_y = if char_h as usize > area_h {
-        0
-    } else {
-        (area_h - char_h as usize) / 2
+    // 水平偏移（像素）
+    let offset_x = match position {
+        1 => 0,  // 左对齐
+        3 => (area_w as i32 - target_w as i32).max(0),  // 右对齐
+        _ => (area_w as i32 - target_w as i32) / 2,    // 居中
     };
-    let offset_x = (area_w as i32 - new_w as i32) / 2;
 
     let buffer = frame.buffer_mut();
     for row in 0..area_h {
-        let row_in_img = row as i32 - offset_y as i32;
-        if row_in_img < 0 {
-            continue;
+        let y_px = row * 2;
+        if y_px >= target_h as usize {
+            break;
         }
-        let y_pixel_top = (row_in_img as usize) * 2;
-        if y_pixel_top >= new_h as usize {
-            continue;
-        }
-        let y_pixel_bottom = y_pixel_top + 1;
+        let y_bottom = y_px + 1;
         let screen_row = (area.y + row as u16) as usize;
 
         for col in 0..area_w {
-            let x_pixel = col as i32 - offset_x;
-            if x_pixel < 0 || x_pixel as usize >= new_w as usize {
+            let x_px = (col as i32 - offset_x) as usize;
+            if x_px >= target_w as usize {
                 continue;
             }
-            let x_pixel = x_pixel as usize;
-            let pixel_top = resized.get_pixel(x_pixel as u32, y_pixel_top as u32);
+            let pixel_top = resized.get_pixel(x_px as u32, y_px as u32);
+            let top_alpha = pixel_top[3];
+            if top_alpha < 128 {
+                continue; // 透明像素跳过
+            }
             let top_color = Color::Rgb(pixel_top[0], pixel_top[1], pixel_top[2]);
 
-            let bottom_color = if y_pixel_bottom < new_h as usize {
-                let pixel_bottom = resized.get_pixel(x_pixel as u32, y_pixel_bottom as u32);
-                Color::Rgb(pixel_bottom[0], pixel_bottom[1], pixel_bottom[2])
+            let bottom_color = if y_bottom < target_h as usize {
+                let pixel_bottom = resized.get_pixel(x_px as u32, y_bottom as u32);
+                let bottom_alpha = pixel_bottom[3];
+                if bottom_alpha < 128 {
+                    Color::Reset
+                } else {
+                    Color::Rgb(pixel_bottom[0], pixel_bottom[1], pixel_bottom[2])
+                }
             } else {
-                Color::Black
+                Color::Reset
             };
 
             let cell = buffer.get_mut((area.x + col as u16) as u16, screen_row as u16);

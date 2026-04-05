@@ -5,20 +5,30 @@ use anyhow::Result;
 use crate::defaults;
 
 #[derive(Debug, Clone)]
+pub struct ImageParams {
+    pub filename: Option<String>,
+    pub position: usize,  
+    pub scale: u8,        
+}
+
+#[derive(Debug, Clone)]
 pub enum DialogueCommand {
     Text { speaker: Option<String>, text: String, voice: Option<String> },
-    Image { filename: Option<String> },
+    Image(ImageParams),
+    Background { filename: Option<String> },
     Music { filename: String },
-    MusicStop,  // 新增：停止音乐
+    MusicStop,
     Choose { options: Vec<(String, String)> },
     Load { target: String },
     End,
+    Input { prompt: String, var_name: String },
+    SetVar { name: String, value: String },
 }
+
 pub struct SceneData {
     pub commands: Vec<DialogueCommand>,
 }
 
-/// 解析剧情文件，返回场景名到命令列表的映射
 pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> {
     let mut scenes = HashMap::new();
     let mut current_scene = String::new();
@@ -30,18 +40,38 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
             continue;
         }
         if line.starts_with('[') && line.ends_with(']') {
-            // 新场景
             if !current_scene.is_empty() {
                 scenes.insert(current_scene, SceneData { commands: current_commands });
                 current_commands = Vec::new();
             }
             current_scene = line[1..line.len()-1].to_string();
         } else if line.starts_with("img:") {
-            let filename = line[4..].trim();
-            let cmd = if filename.is_empty() {
-                DialogueCommand::Image { filename: None }
+            let rest = &line[4..];
+            let parts: Vec<&str> = rest.split(':').collect();
+            let filename = parts[0].trim().to_string();
+            let position = if parts.len() > 1 {
+                parts[1].parse::<usize>().unwrap_or(2)
             } else {
-                DialogueCommand::Image { filename: Some(filename.to_string()) }
+                2
+            };
+            let scale = if parts.len() > 2 {
+                let s = parts[2].trim_end_matches('%');
+                s.parse::<u8>().unwrap_or(100).min(100)
+            } else {
+                100
+            };
+            let params = if filename.is_empty() {
+                ImageParams { filename: None, position, scale }
+            } else {
+                ImageParams { filename: Some(filename), position, scale }
+            };
+            current_commands.push(DialogueCommand::Image(params));
+        } else if line.starts_with("bg:") {
+            let filename = line[3..].trim();
+            let cmd = if filename.is_empty() {
+                DialogueCommand::Background { filename: None }
+            } else {
+                DialogueCommand::Background { filename: Some(filename.to_string()) }
             };
             current_commands.push(cmd);
         } else if line.starts_with("music:") {
@@ -66,17 +96,25 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
             current_commands.push(DialogueCommand::Load { target });
         } else if line == "end" {
             current_commands.push(DialogueCommand::End);
+        } else if line.starts_with("input:") {
+            let rest = &line[6..];
+            let parts: Vec<&str> = rest.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                let prompt = parts[0].to_string();
+                let var_name = parts[1].to_string();
+                current_commands.push(DialogueCommand::Input { prompt, var_name });
+            }
+        } else if line.contains('=') && !line.starts_with("//") {
+            let parts: Vec<&str> = line.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                let name = parts[0].trim().to_string();
+                let value = parts[1].trim().to_string();
+                current_commands.push(DialogueCommand::SetVar { name, value });
+            } else {
+                parse_text_line(line, &mut current_commands);
+            }
         } else {
-            // 普通对话
-            let parts: Vec<&str> = line.splitn(3, ':').collect();
-            let (speaker, text, voice) = match parts.len() {
-                1 => (None, parts[0].to_string(), None),
-                2 => (Some(parts[0].to_string()), parts[1].to_string(), None),
-                3 => (Some(parts[0].to_string()), parts[1].to_string(), Some(parts[2].to_string())),
-                _ => continue,
-            };
-            let text = text.replace("\\n", "\n");
-            current_commands.push(DialogueCommand::Text { speaker, text, voice });
+            parse_text_line(line, &mut current_commands);
         }
     }
     if !current_scene.is_empty() {
@@ -85,21 +123,23 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
     Ok(scenes)
 }
 
-/// 加载游戏配置
-#[derive(serde::Deserialize)]
-pub struct GameConfig {
-    pub title: String,
-    pub footer: String,
-    pub index: String,
+fn parse_text_line(line: &str, commands: &mut Vec<DialogueCommand>) {
+    let parts: Vec<&str> = line.splitn(3, ':').collect();
+    let (speaker, text, voice) = match parts.len() {
+        1 => (None, parts[0].to_string(), None),
+        2 => (Some(parts[0].to_string()), parts[1].to_string(), None),
+        3 => (Some(parts[0].to_string()), parts[1].to_string(), Some(parts[2].to_string())),
+        _ => return,
+    };
+    let text = text.replace("\\n", "\n");
+    commands.push(DialogueCommand::Text { speaker, text, voice });
 }
 
-/// 加载游戏配置，如果文件不存在则使用默认配置
 pub fn load_game_config() -> Result<GameConfig> {
     let path = Path::new("assets/game.json");
     let content = if path.exists() {
         fs::read_to_string(path)?
     } else {
-        // 确保 assets 目录存在
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -109,13 +149,11 @@ pub fn load_game_config() -> Result<GameConfig> {
     Ok(serde_json::from_str(&content)?)
 }
 
-/// 加载剧情文件，如果文件不存在则使用默认剧情
 pub fn load_dialogue() -> Result<String> {
     let path = Path::new("assets/dialog/dialogue.txt");
     let content = if path.exists() {
         fs::read_to_string(path)?
     } else {
-        // 确保 assets/dialog 目录存在
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -123,4 +161,11 @@ pub fn load_dialogue() -> Result<String> {
         defaults::DEFAULT_DIALOGUE.to_string()
     };
     Ok(content)
+}
+
+#[derive(serde::Deserialize)]
+pub struct GameConfig {
+    pub title: String,
+    pub footer: String,
+    pub index: String,
 }

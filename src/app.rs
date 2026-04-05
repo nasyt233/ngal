@@ -14,6 +14,9 @@ use crate::audio;
 use crate::config::Config;
 use crate::parser::{self, DialogueCommand};
 use crate::image;
+use crate::variables::Variables;
+use crate::save::SaveData;
+use crate::parser::ImageParams;
 
 const HISTORY_MAX: usize = 50;
 
@@ -23,9 +26,15 @@ pub enum AppState {
     Settings,
     About,
     History,
+    SaveSlot,
+    LoadSlot,
+    Input {
+            prompt: String,
+            var_name: String,
+        },
     InDialogue {
         scene_id: String,
-        cmd_index: usize,      // 改为命令索引
+        cmd_index: usize,
     },
     InChoice {
         scene_id: String,
@@ -34,19 +43,7 @@ pub enum AppState {
     },
 }
 
-#[derive(Serialize, Deserialize)]
-struct SaveData {
-    state: AppState,
-    menu_selected: usize,
-}
-
-pub enum ChoiceAction {
-    Select,
-    Exit,
-    Save,
-    Load,
-}
-
+#[derive(Serialize, Deserialize, Clone)]
 pub enum SettingsAction {
     BgmUp,
     BgmDown,
@@ -63,7 +60,7 @@ pub struct App {
     pub menu_options: Vec<String>,
     pub selected: usize,
     pub status_message: Option<String>,
-    pub scenes: HashMap<String, parser::SceneData>,  // 改为 scenes
+    pub scenes: HashMap<String, parser::SceneData>,
     pub config: Config,
     pub portraits: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub logo: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
@@ -74,19 +71,26 @@ pub struct App {
     pub auto_play_timer: Option<Instant>,
     pub current_image: Option<String>,
     pub prev_state: Option<Box<AppState>>,
-    pub title: String,           // 新增
-    pub footer: String,          // 新增
+    pub title: String,
+    pub footer: String,
+    pub variables: Variables,
+    pub input_buffer: String,
+    pub current_background: Option<String>,
+    pub current_image_params: Option<ImageParams>,
+    pub image_cache: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
 }
 
 impl App {
     pub fn new() -> Result<Self> {
         Self::ensure_directories()?;
-        // 加载游戏配置（自动使用默认）
+
         let game_config = parser::load_game_config()?;
-        // 加载剧情文件（自动使用默认）
         let dialogue_content = parser::load_dialogue()?;
         let scenes = parser::parse_dialogue_file(&dialogue_content)?;
+
         let config = Config::load()?;
+
+        
         let mut portraits = HashMap::new();
         let portraits_dir = Path::new("assets/portraits");
         if portraits_dir.exists() {
@@ -102,23 +106,22 @@ impl App {
                 }
             }
         }
-    
-        // 加载 logo
+
         let logo_path = Path::new("assets/portraits/title.png");
         let logo = if logo_path.exists() {
             image::load_image(logo_path).ok()
         } else {
             None
         };
-    
-        // 启动主菜单背景音乐
+
+        
         let title_bgm_path = Path::new("assets/music/title.mp3");
         let bgm_process = if title_bgm_path.exists() {
             audio::play_audio(&title_bgm_path, true, config.bgm_volume).ok()
         } else {
             None
         };
-    
+
         Ok(Self {
             state: AppState::Menu,
             menu_options: vec![
@@ -143,13 +146,18 @@ impl App {
             prev_state: None,
             title: game_config.title,
             footer: game_config.footer,
+            variables: Variables::new(),
+            input_buffer: String::new(),
+            current_background: None,
+            current_image_params: None,
+            image_cache: HashMap::new(),
         })
     }
 
     fn ensure_directories() -> io::Result<()> {
         for dir in &[
             "assets",
-            "assets/dialog",      // 新增剧情目录
+            "assets/dialog",
             "assets/portraits",
             "assets/music",
             "assets/voices",
@@ -161,6 +169,7 @@ impl App {
         }
         Ok(())
     }
+
     
     pub fn play_bgm(&mut self, filename: &str) {
         self.stop_bgm();
@@ -201,6 +210,7 @@ impl App {
         }
     }
 
+    
     pub fn add_to_history(&mut self, speaker: Option<&str>, text: &str) {
         let speaker_clone = speaker.map(|s| s.to_string());
         self.history.push_back((speaker_clone, text.to_string()));
@@ -209,13 +219,20 @@ impl App {
         }
     }
 
+    
+    fn interpolate_text(&self, text: &str) -> String {
+        self.variables.interpolate(text)
+    }
+
+    
     pub fn execute_command(&mut self, cmd: DialogueCommand) {
         match cmd {
             DialogueCommand::Text { speaker, text, voice } => {
+                let interpolated = self.interpolate_text(&text);
                 if let Some(s) = &speaker {
-                    self.add_to_history(Some(s), &text);
+                    self.add_to_history(Some(s), &interpolated);
                 } else {
-                    self.add_to_history(None, &text);
+                    self.add_to_history(None, &interpolated);
                 }
                 if let Some(v) = voice {
                     self.play_voice_by_file(speaker.as_deref().unwrap_or(""), Some(&v));
@@ -223,9 +240,8 @@ impl App {
                     self.play_voice_by_file(&s, None);
                 }
             }
-            DialogueCommand::Image { filename } => {
-                self.current_image = filename;
-                // 图片立即显示，无需等待回车
+            DialogueCommand::Image(params) => {
+                self.current_image_params = Some(params);
             }
             DialogueCommand::Music { filename } => {
                 self.play_bgm(&filename);
@@ -247,7 +263,6 @@ impl App {
                     scene_id: target,
                     cmd_index: 0,
                 };
-                // 执行新场景的第一个命令
                 if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(first_cmd) = scene.commands.get(*cmd_index) {
@@ -255,134 +270,30 @@ impl App {
                         }
                     }
                 }
-                // 自动跳过非交互命令
                 self.skip_non_interactive_commands();
             }
             DialogueCommand::End => {
                 self.state = AppState::Menu;
                 self.current_image = None;
-                self.stop_bgm(); // 结束时停止音乐
+                self.stop_bgm();
             }
-        }
-    }
-    
-    pub fn execute_menu(&mut self) {
-        match self.selected {
-            0 => self.start_game(),
-            1 => self.load_game(),
-            2 => self.state = AppState::About,
-            3 => self.state = AppState::Settings,
-            4 => self.should_quit = true,
-            _ => {}
-        }
-    }
-
-    pub fn start_game(&mut self) {
-        let initial_scene = "welcome".to_string();
-        if self.scenes.contains_key(&initial_scene) {
-            let scene_id = initial_scene.clone();
-            self.state = AppState::InDialogue {
-                scene_id: scene_id.clone(),
-                cmd_index: 0,
-            };
-            // 执行第一个命令
-            if let Some(scene) = self.scenes.get(&scene_id) {
-                if let Some(first_cmd) = scene.commands.first() {
-                    self.execute_command(first_cmd.clone());
-                }
+            DialogueCommand::Input { prompt, var_name } => {
+                
+                self.prev_state = Some(Box::new(self.state.clone()));
+                self.state = AppState::Input { prompt, var_name };
             }
-            // 自动跳过非交互命令，直接显示第一个需要交互的对话
-            self.skip_non_interactive_commands();
-        } else {
-            self.state = AppState::Menu;
-            self.status_message = Some("未找到起始场景 welcome".to_string());
-        }
-        self.status_message = None;
-    }
-
-    pub fn save_game(&mut self) {
-        let data = SaveData {
-            state: self.state.clone(),
-            menu_selected: self.selected,
-        };
-        match serde_json::to_string_pretty(&data) {
-            Ok(json) => {
-                let save_path = Path::new("save/save.json");
-                if let Err(e) = fs::write(save_path, json) {
-                    self.status_message = Some(format!("存档失败：{}", e));
-                } else {
-                    self.status_message = Some("存档成功".to_string());
-                }
+            DialogueCommand::SetVar { name, value } => {
+                let interpolated = self.interpolate_text(&value);
+                self.variables.set(&name, &interpolated);
+                self.advance_dialogue();
             }
-            Err(e) => {
-                self.status_message = Some(format!("序列化失败：{}", e));
+            DialogueCommand::Background { filename } => {
+                self.current_background = filename;
             }
         }
     }
 
-    pub fn load_game(&mut self) {
-        let save_path = Path::new("save/save.json");
-        match fs::read_to_string(save_path) {
-            Ok(json) => match serde_json::from_str::<SaveData>(&json) {
-                Ok(data) => {
-                    self.state = data.state;
-                    self.selected = data.menu_selected;
-                    self.status_message = Some("读档成功".to_string());
-                    // 读档后恢复当前显示的图片
-                    if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
-                        if let Some(scene) = self.scenes.get(scene_id) {
-                            if let Some(cmd) = scene.commands.get(*cmd_index) {
-                                self.execute_command(cmd.clone());
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    self.status_message = Some(format!("解析存档失败：{}", e));
-                }
-            },
-            Err(e) => {
-                self.status_message = Some(format!("读取存档失败：{}", e));
-            }
-        }
-    }
-
-    pub fn advance_dialogue(&mut self) {
-        let (current_scene_id, current_cmd_index) = match &self.state {
-            AppState::InDialogue { scene_id, cmd_index } => (scene_id.clone(), *cmd_index),
-            _ => return,
-        };
     
-        let scene = match self.scenes.get(&current_scene_id) {
-            Some(s) => s,
-            None => {
-                self.state = AppState::Menu;
-                return;
-            }
-        };
-    
-        let next_cmd_index = current_cmd_index + 1;
-        if let Some(next_cmd) = scene.commands.get(next_cmd_index) {
-            // 更新状态
-            self.state = AppState::InDialogue {
-                scene_id: current_scene_id,
-                cmd_index: next_cmd_index,
-            };
-            // 执行命令
-            self.execute_command(next_cmd.clone());
-            
-            // 如果执行的是图片或音乐命令，继续推进到下一个非图片/音乐命令
-            self.skip_non_interactive_commands();
-        } else {
-            // 没有更多命令，返回菜单
-            self.state = AppState::Menu;
-            self.current_image = None;
-            self.stop_bgm();
-        }
-    }
-    
-    /// 跳过非交互命令（图片、音乐），直到遇到需要用户交互的命令
-    /// 跳过非交互命令（图片、音乐），直到遇到需要用户交互的命令
     pub fn skip_non_interactive_commands(&mut self) {
         loop {
             match &self.state {
@@ -390,10 +301,10 @@ impl App {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(cmd) = scene.commands.get(*cmd_index) {
                             match cmd {
-                                DialogueCommand::Image { .. } | 
+                                DialogueCommand::Image { .. } |
                                 DialogueCommand::Music { .. } |
-                                DialogueCommand::MusicStop => {
-                                    // 非交互命令，继续推进
+                                DialogueCommand::MusicStop |
+                                DialogueCommand::SetVar { .. } => {
                                     let next_index = cmd_index + 1;
                                     if let Some(next_cmd) = scene.commands.get(next_index) {
                                         self.state = AppState::InDialogue {
@@ -403,12 +314,11 @@ impl App {
                                         self.execute_command(next_cmd.clone());
                                         continue;
                                     } else {
-                                        // 没有更多命令，返回菜单
                                         self.state = AppState::Menu;
                                         return;
                                     }
                                 }
-                                _ => break, // 遇到交互命令（Text 或 Choose），停止跳过
+                                _ => break,
                             }
                         } else {
                             break;
@@ -422,6 +332,121 @@ impl App {
         }
     }
 
+    
+    pub fn start_game(&mut self) {
+        let initial_scene = "welcome".to_string();
+        if self.scenes.contains_key(&initial_scene) {
+            let scene_id = initial_scene.clone();
+            self.state = AppState::InDialogue {
+                scene_id: scene_id.clone(),
+                cmd_index: 0,
+            };
+            if let Some(scene) = self.scenes.get(&scene_id) {
+                if let Some(first_cmd) = scene.commands.first() {
+                    self.execute_command(first_cmd.clone());
+                }
+            }
+            self.skip_non_interactive_commands();
+        } else {
+            self.state = AppState::Menu;
+            self.status_message = Some("未找到起始场景 welcome".to_string());
+        }
+        self.status_message = None;
+    }
+
+    
+    pub fn save_game_slot(&mut self, slot: usize) {
+        
+        let save_state = if let Some(prev) = &self.prev_state {
+            prev.as_ref().clone()
+        } else {
+            
+            self.state.clone()
+        };
+        
+        if let Err(e) = SaveData::save(slot, &save_state, self.selected, &self.variables, self.current_image.clone()) {
+            self.status_message = Some(format!("存档失败: {}", e));
+        } else {
+            self.status_message = Some(format!("已存档到槽位 {}", slot));
+        }
+        
+        
+        if let Some(prev) = self.prev_state.take() {
+            self.state = *prev;
+        } else {
+            self.state = AppState::Menu;
+        }
+    }
+    pub fn load_game_slot(&mut self, slot: usize) {
+        match SaveData::load(slot) {
+            Ok(data) => {
+                
+                self.state = data.state;
+                self.selected = data.menu_selected;
+                self.variables.deserialize(data.variables);
+                self.current_image = data.current_image;
+                self.status_message = Some(format!("从槽位 {} 读档成功", slot));
+                
+                self.prev_state = None;
+                
+                
+                
+            }
+            Err(e) => {
+                self.status_message = Some(format!("读档失败: {}", e));
+                
+                if let Some(prev) = self.prev_state.take() {
+                    self.state = *prev;
+                } else {
+                    self.state = AppState::Menu;
+                }
+            }
+        }
+    }
+
+    pub fn open_save_slot(&mut self) {
+        
+        self.prev_state = Some(Box::new(self.state.clone()));
+        self.selected = 0;
+        self.state = AppState::SaveSlot;
+    }
+    
+    pub fn open_load_slot(&mut self) {
+        self.prev_state = Some(Box::new(self.state.clone()));
+        self.selected = 0;
+        self.state = AppState::LoadSlot;
+    }
+    
+    pub fn advance_dialogue(&mut self) {
+        let (current_scene_id, current_cmd_index) = match &self.state {
+            AppState::InDialogue { scene_id, cmd_index } => (scene_id.clone(), *cmd_index),
+            _ => return,
+        };
+
+        let scene = match self.scenes.get(&current_scene_id) {
+            Some(s) => s,
+            None => {
+                self.state = AppState::Menu;
+                return;
+            }
+        };
+
+        let next_cmd_index = current_cmd_index + 1;
+        if let Some(next_cmd) = scene.commands.get(next_cmd_index) {
+            self.state = AppState::InDialogue {
+                scene_id: current_scene_id,
+                cmd_index: next_cmd_index,
+            };
+            self.execute_command(next_cmd.clone());
+            self.skip_non_interactive_commands();
+        } else {
+            self.state = AppState::Menu;
+            self.current_image = None;
+            self.stop_bgm();
+        }
+    }
+
+    
     pub fn select_option(&mut self) {
         let (options, selected, _current_scene_id) = match &self.state {
             AppState::InChoice { options, selected, scene_id } => {
@@ -429,78 +454,35 @@ impl App {
             }
             _ => return,
         };
-    
+
         if let Some((_, next_scene)) = options.get(selected) {
             self.state = AppState::InDialogue {
                 scene_id: next_scene.clone(),
                 cmd_index: 0,
             };
-            // 执行新场景的第一个命令
             if let Some(scene) = self.scenes.get(next_scene) {
                 if let Some(first_cmd) = scene.commands.first() {
                     self.execute_command(first_cmd.clone());
                 }
             }
-            // 自动跳过非交互命令
             self.skip_non_interactive_commands();
         }
     }
-    
-    pub fn current_speaker(&self) -> Option<String> {
-        match &self.state {
-            AppState::InDialogue { scene_id, cmd_index } => {
-                if let Some(scene) = self.scenes.get(scene_id) {
-                    if let Some(DialogueCommand::Text { speaker, .. }) = scene.commands.get(*cmd_index) {
-                        return speaker.clone();
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-    
-    pub fn current_text(&self) -> Option<String> {
-        match &self.state {
-            AppState::InDialogue { scene_id, cmd_index } => {
-                if let Some(scene) = self.scenes.get(scene_id) {
-                    if let Some(DialogueCommand::Text { text, .. }) = scene.commands.get(*cmd_index) {
-                        return Some(text.clone());
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
 
-    pub fn handle_settings(&mut self, action: SettingsAction) -> bool {
+    
+    pub fn handle_settings(&mut self, action: SettingsAction) {
         match action {
             SettingsAction::BgmUp => {
                 if self.config.bgm_volume <= 90 {
                     self.config.bgm_volume += 10;
-                    if self.bgm_process.is_some() {
-                        self.stop_bgm();
-                        let bgm_path = Path::new("assets/music/bgm.mp3");
-                        if bgm_path.exists() {
-                            let _ = audio::play_audio(&bgm_path, true, self.config.bgm_volume)
-                                .map(|child| self.bgm_process = Some(child));
-                        }
-                    }
+                    self.apply_bgm_volume();
                     self.status_message = Some(format!("BGM音量: {}%", self.config.bgm_volume));
                 }
             }
             SettingsAction::BgmDown => {
                 if self.config.bgm_volume >= 10 {
                     self.config.bgm_volume -= 10;
-                    if self.bgm_process.is_some() {
-                        self.stop_bgm();
-                        let bgm_path = Path::new("assets/music/bgm.mp3");
-                        if bgm_path.exists() {
-                            let _ = audio::play_audio(&bgm_path, true, self.config.bgm_volume)
-                                .map(|child| self.bgm_process = Some(child));
-                        }
-                    }
+                    self.apply_bgm_volume();
                     self.status_message = Some(format!("BGM音量: {}%", self.config.bgm_volume));
                 }
             }
@@ -544,9 +526,63 @@ impl App {
                 }
             }
         }
-        false
     }
 
+    fn apply_bgm_volume(&mut self) {
+        if self.bgm_process.is_some() {
+            self.stop_bgm();
+            let bgm_path = Path::new("assets/music/title.mp3");
+            if bgm_path.exists() {
+                let _ = audio::play_audio(&bgm_path, true, self.config.bgm_volume)
+                    .map(|child| self.bgm_process = Some(child));
+            }
+        }
+    }
+
+    
+    pub fn current_speaker(&self) -> Option<String> {
+        match &self.state {
+            AppState::InDialogue { scene_id, cmd_index } => {
+                if let Some(scene) = self.scenes.get(scene_id) {
+                    if let Some(DialogueCommand::Text { speaker, .. }) = scene.commands.get(*cmd_index) {
+                        return speaker.clone();
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    pub fn current_text(&self) -> Option<String> {
+        match &self.state {
+            AppState::InDialogue { scene_id, cmd_index } => {
+                if let Some(scene) = self.scenes.get(scene_id) {
+                    if let Some(DialogueCommand::Text { text, .. }) = scene.commands.get(*cmd_index) {
+                        return Some(self.interpolate_text(text));
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    
+    pub fn execute_menu(&mut self) {
+        match self.selected {
+            0 => self.start_game(),
+            1 => {
+                self.open_load_slot();
+            }
+            2 => self.state = AppState::About,
+            3 => self.state = AppState::Settings,
+            4 => self.should_quit = true,
+            _ => {}
+        }
+    }
+
+    
     pub fn handle_event(&mut self, key: KeyCode) {
         self.status_message = None;
 
@@ -567,6 +603,109 @@ impl App {
             AppState::About => {
                 match key {
                     KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,
+                    _ => {}
+                }
+                return;
+            }
+            AppState::SaveSlot => {
+                match key {
+                    KeyCode::Up => {
+                        if self.selected > 0 { self.selected -= 1; }
+                    }
+                    KeyCode::Down => {
+                        if self.selected < 9 { self.selected += 1; }
+                    }
+                    KeyCode::Enter => {
+                        self.save_game_slot(self.selected + 1);
+                    }
+                    KeyCode::Esc => {
+                        if let Some(prev) = self.prev_state.take() {
+                            self.state = *prev;
+                        } else {
+                            self.state = AppState::Menu;
+                        }
+                    }
+                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                        let slot = c.to_digit(10).unwrap() as usize;
+                        if slot >= 1 && slot <= 10 {
+                            self.save_game_slot(slot);
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            AppState::LoadSlot => {
+                match key {
+                    KeyCode::Up => {
+                        if self.selected > 0 { self.selected -= 1; }
+                    }
+                    KeyCode::Down => {
+                        if self.selected < 9 { self.selected += 1; }
+                    }
+                    KeyCode::Enter => {
+                        let slot = self.selected + 1;
+                        if SaveData::exists(slot) {
+                            self.load_game_slot(slot);
+                            
+                            return;
+                        } else {
+                            self.status_message = Some("该槽位无存档".to_string());
+                        }
+                    }
+                    KeyCode::Esc => {
+                        if let Some(prev) = self.prev_state.take() {
+                            self.state = *prev;
+                        } else {
+                            self.state = AppState::Menu;
+                        }
+                    }
+                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                        let slot = c.to_digit(10).unwrap() as usize;
+                        if slot >= 1 && slot <= 10 && SaveData::exists(slot) {
+                            self.load_game_slot(slot);
+                            return;
+                        } else if slot >= 1 && slot <= 10 {
+                            self.status_message = Some("该槽位无存档".to_string());
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            AppState::Input { ref var_name, .. } => {
+                match key {
+                    KeyCode::Enter => {
+                        let value = if self.input_buffer.is_empty() {
+                            "玩家".to_string()
+                        } else {
+                            self.input_buffer.clone()
+                        };
+                        self.variables.set(var_name, &value);
+                        
+                        if let Some(prev) = self.prev_state.take() {
+                            self.state = *prev;
+                        } else {
+                            self.state = AppState::Menu;
+                        }
+                        self.input_buffer.clear();
+                        
+                        self.advance_dialogue();
+                    }
+                    KeyCode::Esc => {
+                        if let Some(prev) = self.prev_state.take() {
+                            self.state = *prev;
+                        } else {
+                            self.state = AppState::Menu;
+                        }
+                        self.input_buffer.clear();
+                    }
+                    KeyCode::Backspace => {
+                        self.input_buffer.pop();
+                    }
+                    KeyCode::Char(c) => {
+                        self.input_buffer.push(c);
+                    }
                     _ => {}
                 }
                 return;
@@ -595,14 +734,14 @@ impl App {
             }
             AppState::Settings => {
                 match key {
-                    KeyCode::Char('+') | KeyCode::Char('=') => { self.handle_settings(SettingsAction::BgmUp); }
-                    KeyCode::Char('-') | KeyCode::Char('_') => { self.handle_settings(SettingsAction::BgmDown); }
-                    KeyCode::Char('[') => { self.handle_settings(SettingsAction::VoiceDown); }
-                    KeyCode::Char(']') => { self.handle_settings(SettingsAction::VoiceUp); }
-                    KeyCode::Char('a') | KeyCode::Char('A') => { self.handle_settings(SettingsAction::AutoPlayToggle); }
-                    KeyCode::Char('1') => { self.handle_settings(SettingsAction::AutoPlaySpeedDown); }
-                    KeyCode::Char('2') => { self.handle_settings(SettingsAction::AutoPlaySpeedUp); }
-                    KeyCode::Char('s') | KeyCode::Char('S') => { self.handle_settings(SettingsAction::Save); }
+                    KeyCode::Char('+') | KeyCode::Char('=') => self.handle_settings(SettingsAction::BgmUp),
+                    KeyCode::Char('-') | KeyCode::Char('_') => self.handle_settings(SettingsAction::BgmDown),
+                    KeyCode::Char('[') => self.handle_settings(SettingsAction::VoiceDown),
+                    KeyCode::Char(']') => self.handle_settings(SettingsAction::VoiceUp),
+                    KeyCode::Char('a') | KeyCode::Char('A') => self.handle_settings(SettingsAction::AutoPlayToggle),
+                    KeyCode::Char('1') => self.handle_settings(SettingsAction::AutoPlaySpeedDown),
+                    KeyCode::Char('2') => self.handle_settings(SettingsAction::AutoPlaySpeedUp),
+                    KeyCode::Char('s') | KeyCode::Char('S') => self.handle_settings(SettingsAction::Save),
                     KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,
                     _ => {}
                 }
@@ -622,8 +761,12 @@ impl App {
                         self.current_image = None;
                         self.auto_play_timer = None;
                     }
-                    KeyCode::Char('s') | KeyCode::Char('S') => self.save_game(),
-                    KeyCode::Char('l') | KeyCode::Char('L') => self.load_game(),
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        self.open_save_slot();
+                    }
+                    KeyCode::Char('l') | KeyCode::Char('L') => {
+                        self.open_load_slot();
+                    }
                     KeyCode::Char('h') | KeyCode::Char('H') => {
                         self.prev_state = Some(Box::new(self.state.clone()));
                         self.state = AppState::History;
@@ -649,6 +792,14 @@ impl App {
                         self.state = AppState::History;
                         return;
                     }
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        self.open_save_slot();
+                        return;
+                    }
+                    KeyCode::Char('l') | KeyCode::Char('L') => {
+                        self.open_load_slot();
+                        return;
+                    }
                     _ => {}
                 }
             }
@@ -670,8 +821,6 @@ impl App {
                     self.state = AppState::Menu;
                     self.current_image = None;
                 }
-                KeyCode::Char('s') | KeyCode::Char('S') => self.save_game(),
-                KeyCode::Char('l') | KeyCode::Char('L') => self.load_game(),
                 _ => {}
             }
         }

@@ -6,14 +6,26 @@ use crossterm::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use std::env;
 use std::io::stdout;
 use std::panic;
 use std::time::Duration;
 
 use ngal::app::App;
+use ngal::args::Args;
 use ngal::ui;
 
 fn main() -> Result<()> {
+    let args = Args::parse();
+    if args.help {
+        Args::print_help();
+        return Ok(());
+    }
+
+    if args.game_dir != std::path::PathBuf::from(".") {
+        env::set_current_dir(&args.game_dir)?;
+    }
+
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         let _ = disable_raw_mode();

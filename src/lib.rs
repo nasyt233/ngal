@@ -1,7 +1,10 @@
+pub mod args;
 pub mod defaults;
 pub mod parser;
 pub mod config;
 pub mod audio;
 pub mod image;
+pub mod variables;
+pub mod save;
 pub mod app;
 pub mod ui;

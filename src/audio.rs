@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 use std::process::{Child, Command};
 
-/// 播放音频文件（使用 mpv）
+/// 播放音频文件（默认使用 mpv，要自己安装）
 /// background: true 循环播放，false 单次播放
 pub fn play_audio(path: &Path, background: bool, volume: u8) -> Result<Child> {
     if !path.exists() {

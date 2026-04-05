@@ -8,7 +8,7 @@ pub const DEFAULT_CONFIG: &str = r#"{
   "voice_volume": 80,
   "auto_play": false,
   "auto_play_speed": 2.0,
-  "version": "0.5.0"
+  "version": "0.6.0"
 }"#;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -43,7 +43,6 @@ impl Config {
             match serde_json::from_str::<Config>(&content) {
                 Ok(config) => Ok(config),
                 Err(_) => {
-                    // 合并旧配置，补全缺失字段
                     let mut config = Config::default();
                     if let Ok(existing) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(bgm) = existing.get("bgm_volume").and_then(|v| v.as_u64()) {
