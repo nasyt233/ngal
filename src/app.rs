@@ -83,45 +83,33 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self> {
         Self::ensure_directories()?;
-
+    
         let game_config = parser::load_game_config()?;
         let dialogue_content = parser::load_dialogue()?;
         let scenes = parser::parse_dialogue_file(&dialogue_content)?;
-
+    
         let config = Config::load()?;
-
+    
         
-        let mut portraits = HashMap::new();
-        let portraits_dir = Path::new("assets/portraits");
-        if portraits_dir.exists() {
-            for entry in fs::read_dir(portraits_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if let Ok(img) = image::load_image(&path) {
-                            portraits.insert(name.to_string(), img);
-                        }
-                    }
-                }
-            }
-        }
+        let image_cache = HashMap::new();
+    
 
+        let portraits = HashMap::new();  
+    
         let logo_path = Path::new("assets/portraits/title.png");
         let logo = if logo_path.exists() {
             image::load_image(logo_path).ok()
         } else {
             None
         };
-
-        
+    
         let title_bgm_path = Path::new("assets/music/title.mp3");
         let bgm_process = if title_bgm_path.exists() {
             audio::play_audio(&title_bgm_path, true, config.bgm_volume).ok()
         } else {
             None
         };
-
+    
         Ok(Self {
             state: AppState::Menu,
             menu_options: vec![
@@ -150,10 +138,9 @@ impl App {
             input_buffer: String::new(),
             current_background: None,
             current_image_params: None,
-            image_cache: HashMap::new(),
+            image_cache,  // 直接赋值
         })
     }
-
     fn ensure_directories() -> io::Result<()> {
         for dir in &[
             "assets",
@@ -228,16 +215,19 @@ impl App {
     pub fn execute_command(&mut self, cmd: DialogueCommand) {
         match cmd {
             DialogueCommand::Text { speaker, text, voice } => {
-                let interpolated = self.interpolate_text(&text);
-                if let Some(s) = &speaker {
-                    self.add_to_history(Some(s), &interpolated);
+                // 对说话人和文本都进行插值
+                let interpolated_speaker = speaker.as_ref().map(|s| self.variables.interpolate(s));
+                let interpolated_text = self.variables.interpolate(&text);
+                let final_speaker = interpolated_speaker.as_deref();
+                if let Some(s) = final_speaker {
+                    self.add_to_history(Some(s), &interpolated_text);
                 } else {
-                    self.add_to_history(None, &interpolated);
+                    self.add_to_history(None, &interpolated_text);
                 }
                 if let Some(v) = voice {
-                    self.play_voice_by_file(speaker.as_deref().unwrap_or(""), Some(&v));
-                } else if let Some(s) = speaker {
-                    self.play_voice_by_file(&s, None);
+                    self.play_voice_by_file(final_speaker.unwrap_or(""), Some(&v));
+                } else if let Some(s) = final_speaker {
+                    self.play_voice_by_file(s, None);
                 }
             }
             DialogueCommand::Image(params) => {
@@ -302,6 +292,7 @@ impl App {
                         if let Some(cmd) = scene.commands.get(*cmd_index) {
                             match cmd {
                                 DialogueCommand::Image { .. } |
+                                DialogueCommand::Background { .. } |
                                 DialogueCommand::Music { .. } |
                                 DialogueCommand::MusicStop |
                                 DialogueCommand::SetVar { .. } => {

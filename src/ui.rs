@@ -367,7 +367,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             if let Some(bg_filename) = &app.current_background {
                 let bg_path = Path::new("assets/portraits").join(bg_filename);
                 if let Ok(bg_img) = image::load_image(&bg_path) {
-                    image::draw_portrait(frame, inner, &bg_img, 2, 100);
+                    image::draw_background(frame, inner, &bg_img);
                 }
             }
         
@@ -379,34 +379,19 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                     } else {
                         let img_path = Path::new("assets/portraits").join(filename);
                         match image::load_image(&img_path) {
-                            Ok(img) => img,
+                            Ok(img) => {
+                                app.image_cache.insert(filename.clone(), img.clone());
+                                img
+                            }
                             Err(_) => {
-                                let text = format!("图片加载失败: {}", filename);
-                                let para = Paragraph::new(text)
-                                    .style(Style::default().fg(Color::Rgb(212, 112, 212)))
-                                    .alignment(Alignment::Center);
-                                frame.render_widget(para, inner);
-                                return;
+                                // 返回一个 1x1 透明占位图片
+                                let placeholder = ::image::ImageBuffer::from_pixel(1, 1, ::image::Rgba([0, 0, 0, 0]));
+                                app.image_cache.insert(filename.clone(), placeholder.clone());
+                                placeholder
                             }
                         }
                     };
                     image::draw_portrait(frame, inner, &img, params.position, params.scale);
-                } else {
-                    if let Some(speaker) = app.current_speaker() {
-                        let text = format!("{} 正在说话...", speaker);
-                        let para = Paragraph::new(text)
-                            .style(Style::default().fg(Color::Rgb(150, 150, 150)))
-                            .alignment(Alignment::Center);
-                        frame.render_widget(para, inner);
-                    }
-                }
-            } else {
-                if let Some(speaker) = app.current_speaker() {
-                    let text = format!("{} 正在说话...", speaker);
-                    let para = Paragraph::new(text)
-                        .style(Style::default().fg(Color::Rgb(150, 150, 150)))
-                        .alignment(Alignment::Center);
-                    frame.render_widget(para, inner);
                 }
             }
         }

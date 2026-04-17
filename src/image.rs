@@ -7,6 +7,8 @@ use ratatui::{
 };
 use std::path::Path;
 
+// 重新导出给其他模块使用
+// pub use image::{ImageBuffer, Rgba};
 
 pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let img = ImageReader::open(path)
@@ -19,6 +21,49 @@ pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
 }
 
 
+/// 绘制背景图片（拉伸填满整个区域，不保持宽高比）
+pub fn draw_background(
+    frame: &mut Frame,
+    area: Rect,
+    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+) {
+    let area_w = area.width as usize;
+    let area_h = area.height as usize;
+    let target_px_w = area_w;
+    let target_px_h = area_h * 2;
+
+    // 直接拉伸到目标尺寸
+    let resized = image::imageops::resize(
+        img,
+        target_px_w as u32,
+        target_px_h as u32,
+        image::imageops::FilterType::Triangle,
+    );
+
+    let buffer = frame.buffer_mut();
+    for row in 0..area_h {
+        let y_px = row * 2;
+        if y_px >= target_px_h {
+            break;
+        }
+        let y_bottom = y_px + 1;
+        let screen_row = (area.y + row as u16) as usize;
+        for col in 0..area_w {
+            let pixel_top = resized.get_pixel(col as u32, y_px as u32);
+            let top_color = Color::Rgb(pixel_top[0], pixel_top[1], pixel_top[2]);
+            let bottom_color = if y_bottom < target_px_h {
+                let pixel_bottom = resized.get_pixel(col as u32, y_bottom as u32);
+                Color::Rgb(pixel_bottom[0], pixel_bottom[1], pixel_bottom[2])
+            } else {
+                Color::Reset
+            };
+            let cell = buffer.get_mut((area.x + col as u16) as u16, screen_row as u16);
+            cell.set_char('▀')
+                .set_fg(top_color)
+                .set_bg(bottom_color);
+        }
+    }
+}
 
 
 pub fn draw_portrait(

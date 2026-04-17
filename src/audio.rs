@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 use std::process::{Child, Command};
 
-/// 播放音频文件（默认使用 mpv，要自己安装）
+/// 播放音频文件（使用 mpv）
 /// background: true 循环播放，false 单次播放
 pub fn play_audio(path: &Path, background: bool, volume: u8) -> Result<Child> {
     if !path.exists() {
@@ -16,6 +16,10 @@ pub fn play_audio(path: &Path, background: bool, volume: u8) -> Result<Child> {
         .arg("--no-window-dragging")
         .arg("--no-input-default-bindings")
         .arg("--no-input-cursor")
+        .arg("--no-resume-playback")
+        .arg("--idle=no")
+        .arg("--audio-exclusive=no")   // 关键：不独占音频设备，允许多个音频混合
+        .arg("--audio-buffer=0.5")     // 缓冲设置，减少延迟
         .arg(format!("--volume={}", volume_str))
         .arg(path)
         .stdout(std::process::Stdio::null())
