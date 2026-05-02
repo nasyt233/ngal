@@ -1,6 +1,6 @@
 # 🎮 ngal - 终端视觉小说引擎
 
-[English REDME]('REDME_en.md')
+[English README]('README_en.md')
 
 [![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
