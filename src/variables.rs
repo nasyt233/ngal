@@ -20,7 +20,7 @@ impl Variables {
         self.map.get(name)
     }
 
-    /// 将文本中的{}替换为实际值
+    
     pub fn interpolate(&self, text: &str) -> String {
         let re = Regex::new(r"\{([^{}]+)\}").unwrap();
         let mut result = text.to_string();
@@ -33,12 +33,12 @@ impl Variables {
         result
     }
 
-    /// 序列化用于存档
+    
     pub fn serialize(&self) -> HashMap<String, String> {
         self.map.clone()
     }
 
-    /// 从存档恢复
+    
     pub fn deserialize(&mut self, data: HashMap<String, String>) {
         self.map = data;
     }

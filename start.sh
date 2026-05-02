@@ -1,2 +1,2 @@
-chmod +x ngal
-./ngal
+chmod +x ngal*
+./ngal*

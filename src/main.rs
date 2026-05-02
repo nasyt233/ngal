@@ -6,7 +6,6 @@ use crossterm::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
-use std::env;
 use std::io::stdout;
 use std::panic;
 use std::time::Duration;
@@ -21,9 +20,13 @@ fn main() -> Result<()> {
         Args::print_help();
         return Ok(());
     }
+    if args.version {
+        Args::print_version();
+        return Ok(());
+    }
 
     if args.game_dir != std::path::PathBuf::from(".") {
-        env::set_current_dir(&args.game_dir)?;
+        std::env::set_current_dir(&args.game_dir)?;
     }
 
     let original_hook = panic::take_hook();
@@ -42,11 +45,16 @@ fn main() -> Result<()> {
     let mut app = App::new()?;
 
     loop {
+        
+        app.update_animation();
+
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
+        
         app.update_auto_play();
 
-        if event::poll(Duration::from_millis(50))? {
+        
+        if event::poll(Duration::from_millis(16))? {
             match event::read()? {
                 Event::Key(key) => {
                     match key.code {

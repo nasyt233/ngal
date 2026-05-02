@@ -12,12 +12,16 @@ bg:91.png
 img:鸣朝.png:3:35%
 鸣朝:鸣朝才牛逼😡:mcnb.mp3
 鸣朝:原神不牛逼🤓:ys_no_nb.mp3
+原神:原神才牛逼🤓👍:ysnb.mp3
+原神:鸣朝不牛逼😡:mc_no_nb.mp3
 load:ytnb
 
 [mcnb]
 img:原神.png
 原神:原神才牛逼🤓👍:ysnb.mp3
 原神:鸣朝不牛逼😡:mc_no_nb.mp3
+鸣朝:鸣朝才牛逼😡:mcnb.mp3
+鸣朝:原神不牛逼🤓:ys_no_nb.mp3
 load:ytnb
 
 [zmd]
@@ -27,7 +31,7 @@ end
 
 [ytnb]
 img:我.png
-我:😋他们产的片才牛逼😋:ysmcnb.mp3
+{name}:😋他们产的片才牛逼😋:ysmcnb.mp3
 bg:
 NAS油条:游戏结束
 end

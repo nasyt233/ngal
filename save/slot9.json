@@ -1,0 +1,14 @@
+{
+  "state": {
+    "InDialogue": {
+      "scene_id": "ysnb",
+      "cmd_index": 3
+    }
+  },
+  "menu_selected": 8,
+  "variables": {
+    "name": "油条"
+  },
+  "current_image": null,
+  "timestamp": "1777732585"
+}

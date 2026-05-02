@@ -52,6 +52,10 @@ pub enum SettingsAction {
     AutoPlayToggle,
     AutoPlaySpeedUp,
     AutoPlaySpeedDown,
+    TextAnimationToggle,
+    TextSpeedUp,
+    TextSpeedDown,
+    BgColorNext,
     Save,
 }
 
@@ -78,6 +82,9 @@ pub struct App {
     pub current_background: Option<String>,
     pub current_image_params: Option<ImageParams>,
     pub image_cache: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub target_text: String,        
+    pub display_text: String,       
+    pub last_char_time: Instant,    
 }
 
 impl App {
@@ -138,7 +145,10 @@ impl App {
             input_buffer: String::new(),
             current_background: None,
             current_image_params: None,
-            image_cache,  // 直接赋值
+            image_cache,  
+            target_text: String::new(),
+            display_text: String::new(),
+            last_char_time: Instant::now(),
         })
     }
     fn ensure_directories() -> io::Result<()> {
@@ -215,15 +225,26 @@ impl App {
     pub fn execute_command(&mut self, cmd: DialogueCommand) {
         match cmd {
             DialogueCommand::Text { speaker, text, voice } => {
-                // 对说话人和文本都进行插值
+                let interpolated = self.interpolate_text(&text);
+                self.target_text = interpolated.clone();
+                self.display_text = String::new();
+                self.last_char_time = Instant::now();
+                if !self.target_text.is_empty() {
+                    let first_char = self.target_text.chars().next().unwrap();
+                    let char_len = first_char.len_utf8();
+                    self.display_text.push_str(&self.target_text[0..char_len]);
+                }
+
                 let interpolated_speaker = speaker.as_ref().map(|s| self.variables.interpolate(s));
                 let interpolated_text = self.variables.interpolate(&text);
                 let final_speaker = interpolated_speaker.as_deref();
+                
                 if let Some(s) = final_speaker {
                     self.add_to_history(Some(s), &interpolated_text);
                 } else {
                     self.add_to_history(None, &interpolated_text);
                 }
+                
                 if let Some(v) = voice {
                     self.play_voice_by_file(final_speaker.unwrap_or(""), Some(&v));
                 } else if let Some(s) = final_speaker {
@@ -509,6 +530,26 @@ impl App {
                 self.config.auto_play_speed = new_speed;
                 self.status_message = Some(format!("自动播放速度: {:.1}秒", new_speed));
             }
+            SettingsAction::TextAnimationToggle => {
+                self.config.text_animation = !self.config.text_animation;
+                
+                if !self.config.text_animation && self.display_text != self.target_text {
+                    self.display_text = self.target_text.clone();
+                }
+                self.status_message = Some(if self.config.text_animation { "文字动画开启" } else { "文字动画关闭" }.to_string());
+            }
+            SettingsAction::TextSpeedUp => {
+                if self.config.text_speed <= 90 {
+                    self.config.text_speed += 10;
+                    self.status_message = Some(format!("文字速度: {}ms", self.config.text_speed));
+                }
+            }
+            SettingsAction::TextSpeedDown => {
+                if self.config.text_speed >= 20 {
+                    self.config.text_speed -= 10;
+                    self.status_message = Some(format!("文字速度: {}ms", self.config.text_speed));
+                }
+            }
             SettingsAction::Save => {
                 if let Err(e) = self.config.save() {
                     self.status_message = Some(format!("保存配置失败: {}", e));
@@ -516,9 +557,31 @@ impl App {
                     self.status_message = Some("配置已保存".to_string());
                 }
             }
+            SettingsAction::BgColorNext => {
+                
+                let next_color = match self.config.background_color.as_str() {
+                    "default" => "dark_purple",
+                    "dark_purple" => "dark_blue",
+                    "dark_blue" => "dark_green",
+                    "dark_green" => "dark_red",
+                    "dark_red" => "dark_gray",
+                    _ => "default",
+                };
+                self.config.background_color = next_color.to_string();
+                let color_name = match next_color {
+                    "default" => "无色",
+                    "dark_purple" => "深紫色",
+                    "dark_blue" => "深蓝色",
+                    "dark_green" => "深绿色",
+                    "dark_red" => "深红色",
+                    "dark_gray" => "深灰色",
+                    _ => "深紫色",
+                };
+                self.status_message = Some(format!("背景颜色: {}", color_name));
+            }
         }
     }
-
+    
     fn apply_bgm_volume(&mut self) {
         if self.bgm_process.is_some() {
             self.stop_bgm();
@@ -536,7 +599,9 @@ impl App {
             AppState::InDialogue { scene_id, cmd_index } => {
                 if let Some(scene) = self.scenes.get(scene_id) {
                     if let Some(DialogueCommand::Text { speaker, .. }) = scene.commands.get(*cmd_index) {
-                        return speaker.clone();
+                        if let Some(s) = speaker {
+                            return Some(self.variables.interpolate(s));
+                        }
                     }
                 }
                 None
@@ -627,21 +692,37 @@ impl App {
                 return;
             }
             AppState::LoadSlot => {
+                let valid_slots: Vec<usize> = (1..=10).filter(|&i| SaveData::exists(i)).collect();
+                if valid_slots.is_empty() {
+                    match key {
+                        KeyCode::Esc => {
+                            if let Some(prev) = self.prev_state.take() {
+                                self.state = *prev;
+                            } else {
+                                self.state = AppState::Menu;
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+                
                 match key {
                     KeyCode::Up => {
-                        if self.selected > 0 { self.selected -= 1; }
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
                     }
                     KeyCode::Down => {
-                        if self.selected < 9 { self.selected += 1; }
+                        if self.selected < valid_slots.len() - 1 {
+                            self.selected += 1;
+                        }
                     }
                     KeyCode::Enter => {
-                        let slot = self.selected + 1;
-                        if SaveData::exists(slot) {
+                        if let Some(&slot) = valid_slots.get(self.selected) {
                             self.load_game_slot(slot);
                             
                             return;
-                        } else {
-                            self.status_message = Some("该槽位无存档".to_string());
                         }
                     }
                     KeyCode::Esc => {
@@ -651,16 +732,11 @@ impl App {
                             self.state = AppState::Menu;
                         }
                     }
-                    KeyCode::Char(c) if c.is_ascii_digit() => {
-                        let slot = c.to_digit(10).unwrap() as usize;
-                        if slot >= 1 && slot <= 10 && SaveData::exists(slot) {
-                            self.load_game_slot(slot);
-                            return;
-                        } else if slot >= 1 && slot <= 10 {
-                            self.status_message = Some("该槽位无存档".to_string());
-                        }
-                    }
                     _ => {}
+                }
+                
+                if self.selected >= valid_slots.len() {
+                    self.selected = valid_slots.len().saturating_sub(1);
                 }
                 return;
             }
@@ -734,6 +810,10 @@ impl App {
                     KeyCode::Char('2') => self.handle_settings(SettingsAction::AutoPlaySpeedUp),
                     KeyCode::Char('s') | KeyCode::Char('S') => self.handle_settings(SettingsAction::Save),
                     KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,
+                    KeyCode::Char('t') | KeyCode::Char('T') => self.handle_settings(SettingsAction::TextAnimationToggle),
+                    KeyCode::Char('3') => self.handle_settings(SettingsAction::TextSpeedDown),
+                    KeyCode::Char('4') => self.handle_settings(SettingsAction::TextSpeedUp),
+                    KeyCode::Char('b') | KeyCode::Char('B') => self.handle_settings(SettingsAction::BgColorNext),
                     _ => {}
                 }
                 return;
@@ -829,6 +909,40 @@ impl App {
                         _ => self.auto_play_timer = None,
                     }
                 }
+            }
+        }
+    }
+    
+    pub fn update_animation(&mut self) {
+        if !self.config.text_animation {
+            if self.display_text != self.target_text {
+                self.display_text = self.target_text.clone();
+            }
+            return;
+        }
+        
+        if self.target_text.is_empty() {
+            return;
+        }
+        
+        if self.display_text.len() < self.target_text.len() {
+            let elapsed = self.last_char_time.elapsed();
+            let speed = Duration::from_millis(self.config.text_speed);
+            if elapsed >= speed {
+                let add_count = (elapsed.as_millis() / speed.as_millis()).max(1) as usize;
+                for _ in 0..add_count {
+                    let current_len = self.display_text.len();
+                    if current_len < self.target_text.len() {
+                        let next_char = self.target_text[current_len..].chars().next();
+                        if let Some(c) = next_char {
+                            let char_len = c.len_utf8();
+                            self.display_text.push_str(&self.target_text[current_len..current_len + char_len]);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.last_char_time = Instant::now();
             }
         }
     }

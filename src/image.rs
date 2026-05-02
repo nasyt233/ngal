@@ -7,8 +7,8 @@ use ratatui::{
 };
 use std::path::Path;
 
-// 重新导出给其他模块使用
-// pub use image::{ImageBuffer, Rgba};
+
+
 
 pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let img = ImageReader::open(path)
@@ -20,8 +20,6 @@ pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     Ok(img.to_rgba8())
 }
 
-
-/// 绘制背景图片（拉伸填满整个区域，不保持宽高比）
 pub fn draw_background(
     frame: &mut Frame,
     area: Rect,
@@ -32,7 +30,7 @@ pub fn draw_background(
     let target_px_w = area_w;
     let target_px_h = area_h * 2;
 
-    // 直接拉伸到目标尺寸
+    
     let resized = image::imageops::resize(
         img,
         target_px_w as u32,
@@ -78,7 +76,7 @@ pub fn draw_portrait(
     let area_h = area.height as usize;
 
     let target_px_h = area_h * 2;
-    // 缩放图片使得高度等于 target_px_h（保持宽高比）
+    
     let scale = target_px_h as f64 / img_h as f64;
     let target_w = (img_w as f64 * scale) as u32;
     let target_h = target_px_h as u32;
@@ -86,7 +84,7 @@ pub fn draw_portrait(
         return;
     }
 
-    // 缩放图片（使用 Triangle 算法，质量较好）
+    
     let resized = image::imageops::resize(
         img,
         target_w,
@@ -94,11 +92,11 @@ pub fn draw_portrait(
         image::imageops::FilterType::Triangle,
     );
 
-    // 水平偏移（像素）
+    
     let offset_x = match position {
-        1 => 0,  // 左对齐
-        3 => (area_w as i32 - target_w as i32).max(0),  // 右对齐
-        _ => (area_w as i32 - target_w as i32) / 2,    // 居中
+        1 => 0,  
+        3 => (area_w as i32 - target_w as i32).max(0),  
+        _ => (area_w as i32 - target_w as i32) / 2,    
     };
 
     let buffer = frame.buffer_mut();
@@ -118,7 +116,7 @@ pub fn draw_portrait(
             let pixel_top = resized.get_pixel(x_px as u32, y_px as u32);
             let top_alpha = pixel_top[3];
             if top_alpha < 128 {
-                continue; // 透明像素跳过
+                continue; 
             }
             let top_color = Color::Rgb(pixel_top[0], pixel_top[1], pixel_top[2]);
 

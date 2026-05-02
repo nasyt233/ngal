@@ -13,14 +13,6 @@ use crate::save::SaveData;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.size();
-
-    let bg_color = Color::Rgb(30, 20, 40);
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(bg_color)),
-        area,
-    );
-
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -33,12 +25,25 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     render_bottom(frame, chunks[1], app);
 }
 
+fn get_bg_color(app: &App) -> Color {
+    match app.config.background_color.as_str() {
+        "default" => Color::Reset,
+        "dark_purple" => Color::Rgb(40, 30, 50),
+        "dark_blue" => Color::Rgb(0, 0, 139),
+        "dark_green" => Color::Rgb(0, 100, 0),
+        "dark_red" => Color::Rgb(139, 0, 0),
+        "dark_gray" => Color::Rgb(64, 64, 64),
+        _ => Color::Rgb(40, 30, 50),
+    }
+}
+
 fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
+    let bg_color = get_bg_color(app);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Rgb(212, 112, 212)))
         .border_type(ratatui::widgets::BorderType::Double)
-        .style(Style::default().bg(Color::Rgb(40, 30, 50)));
+        .style(Style::default().bg(bg_color));
     frame.render_widget(block, area);
 
     let inner = Rect {
@@ -58,7 +63,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                     width: inner.width,
                     height: 6.min(inner.height),
                 };
-                image::draw_portrait(frame, logo_area, logo, 2, 100);  // 居中，100% 大小
+                image::draw_portrait(frame, logo_area, logo, 2, 100);
                 y_offset = 6;
             }
 
@@ -83,7 +88,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 ]),
             ])
             .alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Rgb(40, 30, 50)));
+            .style(Style::default().bg(bg_color));
             frame.render_widget(title_para, Rect {
                 x: inner.x,
                 y: inner.y + y_offset,
@@ -100,13 +105,11 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                         Style::default()
                             .fg(Color::Rgb(255, 255, 0))
                             .add_modifier(Modifier::BOLD)
-                            .bg(Color::Rgb(60, 50, 70))
                     } else {
                         Style::default()
                             .fg(Color::Rgb(200, 200, 200))
-                            .bg(Color::Rgb(40, 30, 50))
                     };
-                    ListItem::new(Line::from(Span::styled(text, style)))
+                    ListItem::new(Line::from(Span::styled(text, style.bg(bg_color))))
                 })
                 .collect();
 
@@ -127,7 +130,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
 
             let version = format!("v{}", app.config.version);
             let version_para = Paragraph::new(version)
-                .style(Style::default().fg(Color::Rgb(150, 150, 150)).bg(Color::Rgb(40, 30, 50)))
+                .style(Style::default().fg(Color::Rgb(150, 150, 150)).bg(bg_color))
                 .alignment(Alignment::Right);
             let version_area = Rect {
                 x: inner.x + inner.width - 15,
@@ -166,23 +169,51 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 ]),
                 Line::from(""),
                 Line::from(vec![
+                    Span::raw("文字动画: "),
+                    Span::styled(if app.config.text_animation { "开启" } else { "关闭" }, Style::default().fg(Color::Rgb(100, 255, 100))),
+                    Span::raw("  (T 切换)"),
+                ]),
+                Line::from(vec![
+                    Span::raw("文字速度: "),
+                    Span::styled(format!("{}ms", app.config.text_speed), Style::default().fg(Color::Rgb(100, 255, 100))),
+                    Span::raw("  (3 减慢 / 4 加快)"),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("背景颜色: "),
+                    Span::styled(
+                        match app.config.background_color.as_str() {
+                            "default" => "无色",
+                            "dark_purple" => "深紫色",
+                            "dark_blue" => "深蓝色",
+                            "dark_green" => "深绿色",
+                            "dark_red" => "深红色",
+                            "dark_gray" => "深灰色",
+                            _ => "深紫色",
+                        },
+                        Style::default().fg(Color::Rgb(100, 255, 100))
+                    ),
+                    Span::raw("  (B 切换)"),
+                ]),
+                Line::from(""),
+                Line::from(vec![
                     Span::styled("按 S 保存配置 | ESC 返回", Style::default().fg(Color::Rgb(150, 150, 150)))
                 ]),
             ];
             let para = Paragraph::new(text)
-                .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(Color::Rgb(40, 30, 50)))
+                .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(bg_color))
                 .alignment(Alignment::Center);
             let para_area = Rect {
                 x: inner.x,
-                y: inner.y + (inner.height.saturating_sub(8)) / 2,
+                y: inner.y + (inner.height.saturating_sub(12)) / 2,
                 width: inner.width,
-                height: 8,
+                height: 12,
             };
             frame.render_widget(para, para_area);
 
             if let Some(msg) = &app.status_message {
                 let msg_para = Paragraph::new(msg.as_str())
-                    .style(Style::default().fg(Color::Rgb(255, 255, 0)).bg(Color::Rgb(40, 30, 50)))
+                    .style(Style::default().fg(Color::Rgb(255, 255, 0)).bg(bg_color))
                     .alignment(Alignment::Center);
                 let msg_area = Rect {
                     x: inner.x,
@@ -214,9 +245,9 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 Line::from("按 ESC 返回"),
             ];
             let para = Paragraph::new(text)
-                .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(Color::Rgb(40, 30, 50)))
+                .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(bg_color))
                 .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL).title("关于我们").border_style(Style::default().fg(Color::Rgb(212, 112, 212))));
+                .block(Block::default().borders(Borders::ALL).title("关于我们").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)));
             let para_area = Rect {
                 x: inner.x + (inner.width.saturating_sub(50)) / 2,
                 y: inner.y + (inner.height.saturating_sub(15)) / 2,
@@ -242,9 +273,9 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             }
 
             let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("历史记录").border_style(Style::default().fg(Color::Rgb(212, 112, 212))))
+                .block(Block::default().borders(Borders::ALL).title("历史记录").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
                 .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
-                .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(Color::Rgb(20, 20, 30)));
+                .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(bg_color));
 
             let list_area = Rect {
                 x: inner.x + (inner.width.saturating_sub(60)) / 2,
@@ -255,11 +286,11 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             frame.render_widget(Clear, list_area);
             frame.render_stateful_widget(list, list_area, &mut list_state);
         }
+        
         crate::app::AppState::SaveSlot => {
             let items: Vec<ListItem> = (1..=10).map(|i| {
                 let exists = SaveData::exists(i);
                 let info = if exists {
-                    // 读取存档显示时间戳（简单显示）
                     if let Ok(data) = SaveData::load(i) {
                         format!("存档槽 {} - {}", i, data.timestamp)
                     } else {
@@ -272,36 +303,44 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                     Style::default()
                         .fg(Color::Rgb(255, 255, 0))
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Rgb(60, 50, 70))
+                        .bg(bg_color)
                 } else if exists {
                     Style::default()
                         .fg(Color::Rgb(200, 200, 200))
-                        .bg(Color::Rgb(40, 30, 50))
+                        .bg(bg_color)
                 } else {
                     Style::default()
-                        .fg(Color::Rgb(100, 100, 100))
-                        .bg(Color::Rgb(40, 30, 50))
+                        .fg(Color::Rgb(80, 80, 80))
+                        .bg(bg_color)
                 };
                 ListItem::new(Line::from(Span::styled(info, style)))
             }).collect();
         
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("选择存档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))))
-                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
-                .highlight_symbol("> ");
-        
             let list_height = 10;
-            let start_y = inner.y + (inner.height.saturating_sub(list_height)) / 2;
+            let display_height = list_height.min(inner.height);
+            let start_y = inner.y + (inner.height.saturating_sub(display_height)) / 2;
             let list_area = Rect {
-                x: inner.x + (inner.width.saturating_sub(40)) / 2,
+                x: inner.x + (inner.width.saturating_sub(50)) / 2,
                 y: start_y,
-                width: 40.min(inner.width),
-                height: list_height.min(inner.height),
+                width: 50.min(inner.width),
+                height: display_height,
             };
-            frame.render_widget(list, list_area);
+        
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title("选择存档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
+                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)).bg(bg_color))
+                .highlight_symbol("> ");
+            
+            let mut list_state = ratatui::widgets::ListState::default();
+            list_state.select(Some(app.selected));
+            frame.render_stateful_widget(list, list_area, &mut list_state);
         }
         
+        
         crate::app::AppState::LoadSlot => {
+            let valid_slots: Vec<usize> = (1..=10).filter(|&i| SaveData::exists(i)).collect();
+            
+            
             let items: Vec<ListItem> = (1..=10).map(|i| {
                 let exists = SaveData::exists(i);
                 let info = if exists {
@@ -313,47 +352,56 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 } else {
                     format!("存档槽 {} (空)", i)
                 };
-                let style = if i - 1 == app.selected && exists {
+                let style = if exists && valid_slots.iter().position(|&x| x == i) == Some(app.selected) {
                     Style::default()
                         .fg(Color::Rgb(255, 255, 0))
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Rgb(60, 50, 70))
+                        .bg(bg_color)
                 } else if exists {
                     Style::default()
                         .fg(Color::Rgb(200, 200, 200))
-                        .bg(Color::Rgb(40, 30, 50))
+                        .bg(bg_color)
                 } else {
                     Style::default()
-                        .fg(Color::Rgb(100, 100, 100))
-                        .bg(Color::Rgb(40, 30, 50))
+                        .fg(Color::Rgb(80, 80, 80))
+                        .bg(bg_color)
                 };
                 ListItem::new(Line::from(Span::styled(info, style)))
             }).collect();
         
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("选择读档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))))
-                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
-                .highlight_symbol("> ");
-        
             let list_height = 10;
-            let start_y = inner.y + (inner.height.saturating_sub(list_height)) / 2;
+            let display_height = list_height.min(inner.height);
+            let start_y = inner.y + (inner.height.saturating_sub(display_height)) / 2;
             let list_area = Rect {
-                x: inner.x + (inner.width.saturating_sub(40)) / 2,
+                x: inner.x + (inner.width.saturating_sub(50)) / 2,
                 y: start_y,
-                width: 40.min(inner.width),
-                height: list_height.min(inner.height),
+                width: 50.min(inner.width),
+                height: display_height,
             };
-            frame.render_widget(list, list_area);
+        
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title("选择读档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
+                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)).bg(bg_color))
+                .highlight_symbol("> ");
+            
+            let mut list_state = ratatui::widgets::ListState::default();
+            
+            if !valid_slots.is_empty() {
+                
+                let actual_index = valid_slots.iter().position(|&x| x == valid_slots[app.selected]).unwrap_or(0);
+                list_state.select(Some(actual_index));
+            }
+            frame.render_stateful_widget(list, list_area, &mut list_state);
         }
-        crate::app::AppState::Input { prompt, .. } => {
-            let input_display = format!("{}: {}", prompt, app.input_buffer);
+        crate::app::AppState::Input { ref var_name, .. } => {
+            let input_display = format!("请输入 {}: {}", var_name, app.input_buffer);
             let para = Paragraph::new(vec![
                 Line::from(Span::styled(input_display, Style::default().fg(Color::White))),
-                Line::from(Span::styled("(输入文本，按回车确认，ESC取消)", Style::default().fg(Color::Gray))),
+                Line::from(Span::styled("(按回车确认，ESC取消)", Style::default().fg(Color::Gray))),
             ])
-            .style(Style::default().bg(Color::Rgb(40, 30, 50)))
+            .style(Style::default().bg(bg_color))
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("输入").border_style(Style::default().fg(Color::Rgb(212, 112, 212))));
+            .block(Block::default().borders(Borders::ALL).title("输入").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)));
             let para_area = Rect {
                 x: inner.x + (inner.width.saturating_sub(40)) / 2,
                 y: inner.y + (inner.height.saturating_sub(6)) / 2,
@@ -363,15 +411,15 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             frame.render_widget(para, para_area);
         }
         crate::app::AppState::InDialogue { .. } => {
-            // 1. 绘制背景图片（如果有）
+            
             if let Some(bg_filename) = &app.current_background {
                 let bg_path = Path::new("assets/portraits").join(bg_filename);
                 if let Ok(bg_img) = image::load_image(&bg_path) {
                     image::draw_background(frame, inner, &bg_img);
                 }
             }
-        
-            // 2. 绘制前景立绘（如果有）
+
+            
             if let Some(params) = &app.current_image_params {
                 if let Some(filename) = &params.filename {
                     let img = if let Some(cached) = app.image_cache.get(filename) {
@@ -384,10 +432,12 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                                 img
                             }
                             Err(_) => {
-                                // 返回一个 1x1 透明占位图片
-                                let placeholder = ::image::ImageBuffer::from_pixel(1, 1, ::image::Rgba([0, 0, 0, 0]));
-                                app.image_cache.insert(filename.clone(), placeholder.clone());
-                                placeholder
+                                let text = format!("图片加载失败: {}", filename);
+                                let para = Paragraph::new(text)
+                                    .style(Style::default().fg(Color::Rgb(212, 112, 212)).bg(bg_color))
+                                    .alignment(Alignment::Center);
+                                frame.render_widget(para, inner);
+                                return;
                             }
                         }
                     };
@@ -404,13 +454,11 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                         Style::default()
                             .fg(Color::Rgb(255, 255, 0))
                             .add_modifier(Modifier::BOLD)
-                            .bg(Color::Rgb(60, 50, 70))
                     } else {
                         Style::default()
                             .fg(Color::Rgb(200, 200, 200))
-                            .bg(Color::Rgb(40, 30, 50))
                     };
-                    ListItem::new(Line::from(Span::styled(text, style)))
+                    ListItem::new(Line::from(Span::styled(text, style.bg(bg_color))))
                 })
                 .collect();
 
@@ -431,7 +479,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
-    let bg_color = Color::Rgb(40, 30, 50);
+    let bg_color = get_bg_color(app);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(0)])
@@ -448,7 +496,7 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
         ),
         crate::app::AppState::Settings => (
             "设置".to_string(),
-            "按 +/- 调节BGM音量，[ ] 调节语音音量，A 切换自动播放，1/2 调节速度，S 保存，ESC 返回".to_string(),
+            "按 +/- 调节BGM音量，[ ] 调节语音音量，A 切换自动播放，1/2 调节速度，T 切换文字动画，3/4 调节速度，B 切换背景，S 保存，ESC 返回".to_string(),
             app.status_message.as_deref(),
         ),
         crate::app::AppState::About => (
@@ -461,14 +509,14 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
             "按 ESC 或 H 关闭".to_string(),
             app.status_message.as_deref(),
         ),
-        crate::app::AppState::LoadSlot => (
-            "读档".to_string(),
-            if SaveData::exists(1) { "↑↓ 移动，Enter 确认，ESC 返回".to_string() } else { "暂无存档，ESC 返回".to_string() },
-            app.status_message.as_deref(),
-        ),
         crate::app::AppState::SaveSlot => (
             "存档".to_string(),
-            "↑↓ 移动，Enter 确认，ESC 返回".to_string(),
+            "选择存档槽位 (1-10)".to_string(),
+            app.status_message.as_deref(),
+        ),
+        crate::app::AppState::LoadSlot => (
+            "读档".to_string(),
+            "选择读档槽位".to_string(),
             app.status_message.as_deref(),
         ),
         crate::app::AppState::Input { .. } => (
@@ -478,7 +526,7 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
         ),
         crate::app::AppState::InDialogue { .. } => (
             app.current_speaker().unwrap_or_else(|| "".to_string()),
-            app.current_text().unwrap_or_else(|| "".to_string()),
+            app.display_text.clone(),
             app.status_message.as_deref(),
         ),
         crate::app::AppState::InChoice { .. } => (
