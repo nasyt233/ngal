@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>ngal · 终端视觉小说引擎 | 亚克力风介绍+教程</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', 'Noto Sans SC', system-ui, -apple-system, 'Roboto', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.7)), 
+                        url('https://www.loliapi.com/acg/') no-repeat center center fixed;
+            background-size: cover;
+            color: #f0f0f0;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* 亚克力主滤镜 (玻璃态) */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(25, 20, 45, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        /* 头部设计 */
+        .hero {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding: 1rem 0;
+        }
+
+        .hero h1 {
+            font-size: 3.2rem;
+            background: linear-gradient(135deg, #FFDD99, #FFAD99, #D9A7FF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            letter-spacing: 2px;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            margin-top: 0.5rem;
+            opacity: 0.92;
+        }
+
+        .badge-strip {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 1.2rem;
+        }
+
+        .badge {
+            background: rgba(30, 25, 55, 0.7);
+            backdrop-filter: blur(4px);
+            padding: 0.25rem 1rem;
+            border-radius: 40px;
+            font-size: 0.8rem;
+            border: 0.5px solid rgba(255,215,180,0.4);
+        }
+
+        /* 选项卡导航 (毛玻璃质感) */
+        .nav-tabs {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0.8rem;
+            margin-bottom: 2rem;
+        }
+
+        .tab-btn {
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 245, 220, 0.2);
+            padding: 10px 24px;
+            border-radius: 60px;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #f0eefc;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .tab-btn i {
+            margin-right: 6px;
+        }
+
+        .tab-btn:hover {
+            background: rgba(255, 210, 170, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(100deg, #ff9a4a, #ff6b6b);
+            color: white;
+            box-shadow: 0 6px 14px rgba(255, 100, 80, 0.3);
+            border-color: transparent;
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeSlide 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeSlide {
+            from { opacity: 0; transform: translateY(10px);}
+            to { opacity: 1; transform: translateY(0);}
+        }
+
+        /* 主卡片 — 亚克力增强 */
+        .glass-card {
+            background: rgba(28, 24, 54, 0.55);
+            backdrop-filter: blur(12px);
+            border-radius: 32px;
+            border: 1px solid rgba(255, 245, 210, 0.2);
+            padding: 1.8rem 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 20px 35px -12px rgba(0,0,0,0.4);
+            transition: all 0.2s;
+        }
+
+        .glass-card h2 {
+            font-size: 1.8rem;
+            border-left: 5px solid #FFB05A;
+            padding-left: 1rem;
+            margin-bottom: 1.3rem;
+            color: #FFE9C7;
+        }
+
+        .two-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin: 1.2rem 0;
+        }
+
+        .info-tile {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 1.2rem;
+            padding: 1.2rem;
+            border-left: 3px solid #FFAE6A;
+        }
+        .info-tile i {
+            font-size: 1.6rem;
+            margin-right: 12px;
+            color: #FfBD8C;
+        }
+
+        .cmd-badge {
+            background: #1E1B2F;
+            border-radius: 36px;
+            padding: 0.2rem 0.9rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+            display: inline-block;
+            margin: 0.2rem;
+        }
+
+        pre {
+            background: rgba(0, 0, 0, 0.65);
+            border-radius: 1rem;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            font-family: 'Fira Code', monospace;
+            border: 1px solid #946eff40;
+            margin: 1.2rem 0;
+        }
+
+        code {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .copy-btn {
+            background: rgba(220, 200, 255, 0.15);
+            border: none;
+            padding: 5px 12px;
+            border-radius: 30px;
+            color: #FFE2B5;
+            cursor: pointer;
+            font-size: 0.7rem;
+            transition: 0.2s;
+            margin-bottom: 8px;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 180, 100, 0.5);
+        }
+
+        hr {
+            margin: 1rem 0;
+            border-color: rgba(255,255,220,0.15);
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255,255,220,0.2);
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+        a {
+            color: #FFC99F;
+            text-decoration: none;
+        }
+        @media (max-width: 700px) {
+            .container { padding: 1rem; }
+            .hero h1 { font-size: 2.2rem; }
+            .glass-card { padding: 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="hero">
+        <h1><i class="fas fa-terminal"></i> ngal · 终端视觉小说引擎</h1>
+        <p>纯终端｜全彩立绘｜语音+BGM｜变量分支｜亚克力沉浸</p>
+        <div class="badge-strip">
+            <span class="badge"><i class="fab fa-rust"></i> Rust + Ratatui</span>
+            <span class="badge"><i class="fas fa-image"></i> 立绘/背景叠加</span>
+            <span class="badge"><i class="fas fa-head-side-headphones"></i> mpv 音频</span>
+            <span class="badge"><i class="fas fa-code-branch"></i> 脚本+变量</span>
+            <span class="badge"><i class="fas fa-palette"></i> 背景色/动画</span>
+        </div>
+    </div>
+
+    <!-- 选项卡导航 -->
+    <div class="nav-tabs">
+        <button class="tab-btn active" data-tab="intro"><i class="fas fa-info-circle"></i> 引擎介绍</button>
+        <button class="tab-btn" data-tab="features"><i class="fas fa-star"></i> 特色功能</button>
+        <button class="tab-btn" data-tab="usage"><i class="fas fa-play-circle"></i> 快速上手</button>
+        <button class="tab-btn" data-tab="script-guide"><i class="fas fa-book-open"></i> 剧情编写教程</button>
+        <button class="tab-btn" data-tab="commands"><i class="fas fa-keyboard"></i> 操作&命令</button>
+    </div>
+
+    <!-- 引擎介绍 -->
+    <div id="intro" class="tab-content active">
+        <div class="glass-card">
+            <h2><i class="fas fa-crown"></i> 什么是 ngal？</h2>
+            <p>ngal 是一个纯终端环境下的跨平台 Galgame / 视觉小说引擎。使用 Rust 编写，提供精美的双边框 UI、角色立绘/背景分层、变量系统、分支选项、十槽位存档/读档、背景音乐及角色语音。开发者只需编写简单的文本脚本，即可在终端里享受属于自己的故事。</p>
+            <div class="two-grid" style="margin-top: 1rem;">
+                <div class="info-tile"><i class="fas fa-tachometer-alt"></i> <strong>轻量快速</strong><br>无需图形界面，SSH 或 Termux 上流畅运行</div>
+                <div class="info-tile"><i class="fas fa-pen-fancy"></i> <strong>脚本极简</strong><br>对话/图片/音乐/选项皆可一行命令搞定</div>
+                <div class="info-tile"><i class="fas fa-music"></i> <strong>完全沉浸</strong><br>支持 mpv 背景音乐 + 角色独立语音</div>
+                <div class="info-tile"><i class="fas fa-history"></i> <strong>完善功能</strong><br>文字动画、历史回溯、自动播放、鼠标滚轮…</div>
+            </div>
+        </div>
+        <div class="glass-card">
+            <h2><i class="fas fa-download"></i> 安装 & 运行</h2>
+            <p>依赖：Rust + Cargo + mpv (用于音频)</p>
+            <pre><code># 从 crates.io 安装
+cargo install ngal
+
+# 或从 GitHub 编译
+git clone https://github.com/nasyt233/ngal.git
+cd ngal
+cargo build --release
+
+# 运行游戏 (会在当前目录生成 assets/ 及默认配置)
+ngal
+ngal ./mygame        # 指定游戏目录
+ngal --version       # 显示版本</code></pre>
+            <p>首次运行自动创建 `assets/` 相关资源文件夹，放入对应的立绘、音乐、语音即可开始创作。</p>
+        </div>
+    </div>
+
+    <!-- 特色功能 -->
+    <div id="features" class="tab-content">
+        <div class="glass-card">
+            <h2><i class="fas fa-magic"></i> 亮点特性</h2>
+            <div class="two-grid">
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 全彩双线边框 + 亚克力/纯色背景(可切换)</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 立绘位置/缩放控制 (左/中/右 + 百分比)</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 背景与角色图片叠加，支持透明通道</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> BGM/语音独立音量，设置菜单实时调节</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 变量系统 + 用户输入 (`input:提示语:变量`)</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 十槽位存档/读档 (带时间戳信息)</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 自动播放 / 逐字动画 / 动画速度调节</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 历史记录弹窗 (H键) + 鼠标滚轮支持</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 完全开源 MIT 协议，可二次开发</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 快速上手：目录与基础 -->
+    <div id="usage" class="tab-content">
+        <div class="glass-card">
+            <h2><i class="fas fa-folder-tree"></i> 游戏目录结构</h2>
+            <pre><code>your_game/
+├── assets/
+│   ├── game.json          # 标题、底部提示、入口文件配置
+│   ├── dialog/
+│   │   └── dialogue.txt   # ⭐主演剧情脚本 (核心)
+│   ├── portraits/         # 立绘 & 背景图片 .png/.jpg
+│   ├── music/             # 背景音乐 .mp3/.ogg
+│   └── voices/            # 角色语音 .mp3
+├── save/                  # 存档 slot1~10.json (自动生成)
+└── ngal (可执行文件)</code></pre>
+            <p>📌 `game.json` 示例：<br><code>{"title": "终端奇缘", "footer": "按回车继续 | H历史", "index": "dialog/dialogue.txt"}</code></p>
+        </div>
+        <div class="glass-card">
+            <h2><i class="fas fa-play"></i> 首次试玩</h2>
+            <p>按上述结构放好脚本和资源，执行 `ngal` 即可。自带默认剧情演示（变量、分支、立绘切换）。</p>
+            <div class="info-tile"><i class="fas fa-lightbulb"></i> 小窍门：支持 `ngal ./你的项目` 切换游戏根目录，便于管理多项目。</div>
+        </div>
+    </div>
+
+    <!-- ######## 剧情编写教程（完整演示 + 命令表）######## -->
+    <div id="script-guide" class="tab-content">
+        <div class="glass-card">
+            <h2><i class="fas fa-feather-alt"></i> 脚本编写 · 从零到完整演示</h2>
+            <p>剧情文件位于 <code>assets/dialog/dialogue.txt</code>，游戏从 <code>[welcome]</code> 场景启动。下方是一个包含音乐、立绘/背景、变量、选项、跳转等全部指令的示例：</p>
+            <div style="position: relative;">
+                <button class="copy-btn" onclick="copyCodeFromPre(this)">📋 复制示例脚本</button>
+                <pre id="demoScript"><code class="language-txt">[welcome]
+music:title.mp3
+img:NAS油条.png:3:50%
+NAS油条:本项目由Rust语言开发\n按回车键继续:nas_intro.mp3
+img:
+input:请输入你的名字:name
+NAS油条:好的，{name}，哪个游戏牛逼?:gamenb.mp3
+choose:原神牛逼:ysnb|鸣朝牛逼:mcnb|终末地牛逼:zmd
+
+[ysnb]
+bg:91.png
+img:鸣朝.png:3:35%
+鸣朝:鸣朝才牛逼😡:mcnb.mp3
+鸣朝:原神不牛逼🤓:ys_no_nb.mp3
+原神:原神才牛逼🤓👍:ysnb.mp3
+原神:鸣朝不牛逼😡:mc_no_nb.mp3
+load:ytnb
+
+[mcnb]
+img:原神.png
+原神:原神才牛逼🤓👍:ysnb.mp3
+原神:鸣朝不牛逼😡:mc_no_nb.mp3
+鸣朝:鸣朝才牛逼😡:mcnb.mp3
+鸣朝:原神不牛逼🤓:ys_no_nb.mp3
+load:ytnb
+
+[zmd]
+img:终末地.png
+终末地:我最牛逼
+end
+
+[ytnb]
+img:我.png
+{name}:😋他们产的片才牛逼😋:ysmcnb.mp3
+bg:
+NAS油条:游戏结束
+end</code></pre>
+            </div>
+            <hr>
+            <h3><i class="fas fa-table-list"></i> 命令完全手册</h3>
+            <div class="two-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px,1fr));">
+                <div><span class="cmd-badge">对话 + 语音</span><br><code>钟离:随便聊聊</code> / <code>派蒙:好吃:voice_paimon.mp3</code><br>旁白直接写文本即可。</div>
+                <div><span class="cmd-badge">变量 / 输入</span><br><code>input:输入名字:player</code><br><code>{player}你好</code>  /  <code>好感=3</code></div>
+                <div><span class="cmd-badge">立绘 (sprite)</span><br><code>img:角色.png</code> (居中100%)<br><code>img:角色.png:1:70%</code> (左, 70%)<br><code>img:</code> 清除</div>
+                <div><span class="cmd-badge">背景图片</span><br><code>bg:校园.jpg</code> (拉伸填充)<br><code>bg:</code> 清除背景</div>
+                <div><span class="cmd-badge">音乐 & 音效</span><br><code>music:bgm.mp3</code> 播放 / <code>music:</code> 停止</div>
+                <div><span class="cmd-badge">选项分支</span><br><code>choose:去森林:forest|去城镇:town</code></div>
+                <div><span class="cmd-badge">流程控制</span><br><code>load:场景ID</code> / <code>end</code> 结束游戏<br>支持注释 <code>//</code> 或 <code>#</code></div>
+                <div><span class="cmd-badge">换行 & 特效</span><br>对话中 <code>\n</code> 强制换行。<br>文字动画、速度可在设置调节。</div>
+            </div>
+            <p>⚠️ 注意：场景名只使用字母/数字/下划线，文本编码UTF-8无BOM。所有图片/音乐/语音文件放在 assets 下的正确子目录。</p>
+        </div>
+        <div class="glass-card">
+            <h2><i class="fas fa-palette"></i> 立绘高级用法</h2>
+            <p>支持透明背景PNG，可叠加在背景图片上。位置参数: <strong>1(左) / 2(中) / 3(右)</strong>，缩放百分比后显示效果实时适应终端尺寸。例如 <code>img:heroine.png:3:80%</code> 在右侧显示，大小为原图80%。</p>
+            <p>背景图通过 <code>bg:场景.jpg</code> 拉伸填满整个立绘区域，营造沉浸环境。清除背景用 <code>bg:</code>。</p>
+        </div>
+    </div>
+
+    <!-- 按键 / 命令行参数 -->
+    <div id="commands" class="tab-content">
+        <div class="glass-card">
+            <h2><i class="fas fa-gamepad"></i> 游戏内快捷键</h2>
+            <div class="two-grid">
+                <div><kbd>␣ / Enter</kbd> 推进对话 / 确认选项</div>
+                <div><kbd>↑ / ↓</kbd> 选择选项 / 清单滚动</div>
+                <div><kbd>ESC</kbd> 返回上级 / 关菜单</div>
+                <div><kbd>S</kbd> 存档 / <kbd>L</kbd> 读档</div>
+                <div><kbd>H</kbd> 历史记录弹窗</div>
+                <div><kbd>A</kbd> 自动播放开关</div>
+                <div><kbd>T</kbd> 文字动画开关</div>
+                <div><kbd>3 / 4</kbd> 文字速度 -10ms / +10ms</div>
+                <div><kbd>B</kbd> 背景色循环 (深紫/深蓝/深绿/深红/深灰/无色)</div>
+                <div><kbd>q</kbd> 主菜单退出/游戏中退回菜单</div>
+            </div>
+            <hr>
+            <h2><i class="fas fa-terminal"></i> 命令行参数</h2>
+            <pre><code>ngal                     # 当前目录运行
+ngal ./mygame            # 跳转到游戏根目录
+ngal --version   / -V    # 显示版本信息
+ngal -h / --help         # 帮助信息</code></pre>
+        </div>
+    </div>
+
+    <footer>
+        <i class="fab fa-github"></i> <a href="https://github.com/nasyt233/ngal" target="_blank">GitHub 仓库</a> &nbsp;|&nbsp;
+        <i class="fas fa-book"></i> MIT 协议 &nbsp;|&nbsp;
+        <i class="fas fa-music"></i> 引擎需要 <strong>mpv</strong> 播放音频 &nbsp;|&nbsp;
+        背景壁纸 © ACG 随机图库 | 亚克力界面·终端视觉小说的浪漫
+    </footer>
+</div>
+
+<script>
+    // 选项卡切换
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabId = btn.getAttribute('data-tab');
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+        });
+    });
+
+    // 复制代码（用于pre内code）
+    function copyCodeFromPre(btn) {
+        const pre = btn.nextElementSibling;
+        const codeElem = pre.querySelector('code');
+        let text = codeElem.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const original = btn.innerText;
+            btn.innerText = '✅ 已复制！';
+            setTimeout(() => { btn.innerText = original; }, 1500);
+        }).catch(() => {
+            btn.innerText = '❌ 失败';
+            setTimeout(() => { btn.innerText = '📋 复制示例脚本'; }, 1500);
+        });
+    }
+
+    // 高亮显示 (确保高亮生效)
+    document.addEventListener('DOMContentLoaded', () => {
+        hljs.highlightAll();
+    });
+</script>
+</body>
+</html>
