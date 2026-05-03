@@ -1,6 +1,7 @@
 # 🎮 ngal - Terminal Visual Novel Engine
 
 [简体中文 README](README.md)
+![web introduce](index.html)
 
 [![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
