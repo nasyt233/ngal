@@ -393,12 +393,13 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             }
             frame.render_stateful_widget(list, list_area, &mut list_state);
         }
-        crate::app::AppState::Input { ref var_name, .. } => {
-            let input_display = format!("请输入 {}: {}", var_name, app.input_buffer);
+        crate::app::AppState::Input { ref prompt, .. } => {
+            let input_display = format!("{}: ", prompt);
             let para = Paragraph::new(vec![
                 Line::from(Span::styled(input_display, Style::default().fg(Color::White))),
                 Line::from(Span::styled("(按回车确认，ESC取消)", Style::default().fg(Color::Gray))),
             ])
+            
             .style(Style::default().bg(bg_color))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL).title("输入").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)));

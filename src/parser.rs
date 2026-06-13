@@ -98,11 +98,17 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
             current_commands.push(DialogueCommand::End);
         } else if line.starts_with("input:") {
             let rest = &line[6..];
-            let parts: Vec<&str> = rest.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                let prompt = parts[0].to_string();
-                let var_name = parts[1].to_string();
+            // 从右边找最后一个冒号，把提示语和变量名分开
+            if let Some(last_colon) = rest.rfind(':') {
+                let prompt = rest[..last_colon].to_string();
+                let var_name = rest[last_colon + 1..].to_string();
                 current_commands.push(DialogueCommand::Input { prompt, var_name });
+            } else {
+                // 兼容旧格式：没有提示语，只有变量名
+                current_commands.push(DialogueCommand::Input {
+                    prompt: "请输入".to_string(),
+                    var_name: rest.to_string(),
+                });
             }
         } else if line.contains('=') && !line.starts_with("//") {
             let parts: Vec<&str> = line.splitn(2, '=').collect();
