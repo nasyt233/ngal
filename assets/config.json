@@ -3,7 +3,7 @@
   "voice_volume": 80,
   "auto_play": false,
   "auto_play_speed": 2.0,
-  "text_animation": true,
+  "text_animation": false,
   "text_speed": 50,
   "background_color": "dark_purple",
   "version": "0.8.0"

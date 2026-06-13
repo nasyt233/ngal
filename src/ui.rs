@@ -143,7 +143,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
         crate::app::AppState::Settings => {
             let text = vec![
                 Line::from(vec![
-                    Span::styled("⚙️ 音量设置", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD))
+                    Span::styled("⚙️ 游戏设置", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD))
                 ]),
                 Line::from(""),
                 Line::from(vec![
