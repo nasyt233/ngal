@@ -1,7 +1,7 @@
 # 🎮 ngal - 终端视觉小说引擎
 
 [English README](README_en.md)
-![网页介绍](https://nasyt233.github.io/ngal/)
+[网页介绍](https://nasyt233.github.io/ngal/)
 
 [![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
