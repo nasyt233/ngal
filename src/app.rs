@@ -26,6 +26,7 @@ pub enum AppState {
     Settings,
     About,
     History,
+    GameMenu,
     SaveSlot,
     LoadSlot,
     Input {
@@ -41,6 +42,7 @@ pub enum AppState {
         options: Vec<(String, String)>,
         selected: usize,
     },
+    
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -84,7 +86,8 @@ pub struct App {
     pub image_cache: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
     pub target_text: String,        
     pub display_text: String,       
-    pub last_char_time: Instant,    
+    pub last_char_time: Instant,
+    pub menu_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
 }
 
 impl App {
@@ -103,14 +106,26 @@ impl App {
 
         let portraits = HashMap::new();  
     
-        let logo_path = Path::new("assets/portraits/title.png");
-        let logo = if logo_path.exists() {
-            image::load_image(logo_path).ok()
+
+        let logo = if let Some(logo_file) = &game_config.logo {
+            let logo_path = Path::new("assets/portraits").join(logo_file);
+            image::load_image_rgba(&logo_path).ok()
         } else {
             None
         };
-    
-        let title_bgm_path = Path::new("assets/music/title.mp3");
+        
+        let menu_image = if let Some(ref path) = game_config.menu_image {
+            let img_path = Path::new("assets/portraits").join(path);
+            image::load_image_rgba(&img_path).ok()  
+        } else {
+            None
+        };
+
+        let title_bgm_path = if let Some(bgm_file) = &game_config.bgm {
+            Path::new("assets/music").join(bgm_file)
+        } else {
+            Path::new("assets/music/title.mp3").to_path_buf()   
+        };
         let bgm_process = if title_bgm_path.exists() {
             audio::play_audio(&title_bgm_path, true, config.bgm_volume).ok()
         } else {
@@ -149,6 +164,7 @@ impl App {
             target_text: String::new(),
             display_text: String::new(),
             last_char_time: Instant::now(),
+            menu_image,
         })
     }
     fn ensure_directories() -> io::Result<()> {
@@ -269,7 +285,12 @@ impl App {
                     };
                 }
             }
-            DialogueCommand::Load { target } => {
+            DialogueCommand::Load { file, target } => {
+                if let Some(file_name) = file {
+                    if !self.scenes.contains_key(&target) {
+                        let _ = self.load_external_file(&file_name);
+                    }
+                }
                 self.state = AppState::InDialogue {
                     scene_id: target,
                     cmd_index: 0,
@@ -367,12 +388,23 @@ impl App {
     }
 
     
+    pub fn load_external_file(&mut self, file_name: &str) -> Result<()> {
+        let path = Path::new("assets/dialog").join(file_name);
+        let content = fs::read_to_string(&path)?;
+        let new_scenes = parser::parse_dialogue_file(&content)?;
+
+        for (k, v) in new_scenes {
+            self.scenes.insert(k, v);
+        }
+        Ok(())
+    }
+
+
     pub fn save_game_slot(&mut self, slot: usize) {
         
         let save_state = if let Some(prev) = &self.prev_state {
             prev.as_ref().clone()
         } else {
-            
             self.state.clone()
         };
         
@@ -389,6 +421,7 @@ impl App {
             self.state = AppState::Menu;
         }
     }
+    
     pub fn load_game_slot(&mut self, slot: usize) {
         match SaveData::load(slot) {
             Ok(data) => {
@@ -402,7 +435,13 @@ impl App {
                 self.prev_state = None;
                 
                 
-                
+                if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
+                    if let Some(scene) = self.scenes.get(scene_id) {
+                        if let Some(cmd) = scene.commands.get(*cmd_index) {
+                            self.execute_command(cmd.clone());
+                        }
+                    }
+                }
             }
             Err(e) => {
                 self.status_message = Some(format!("读档失败: {}", e));
@@ -558,24 +597,25 @@ impl App {
                 }
             }
             SettingsAction::BgColorNext => {
-                
-                let next_color = match self.config.background_color.as_str() {
-                    "default" => "dark_purple",
-                    "dark_purple" => "dark_blue",
-                    "dark_blue" => "dark_green",
-                    "dark_green" => "dark_red",
-                    "dark_red" => "dark_gray",
-                    _ => "default",
-                };
-                self.config.background_color = next_color.to_string();
-                let color_name = match next_color {
-                    "default" => "无色",
-                    "dark_purple" => "深紫色",
-                    "dark_blue" => "深蓝色",
-                    "dark_green" => "深绿色",
-                    "dark_red" => "深红色",
-                    "dark_gray" => "深灰色",
-                    _ => "深紫色",
+                let colors = vec![
+                    "default".to_string(),
+                    "#2A2A3E".to_string(),
+                    "#1E1E2E".to_string(),
+                    "#222436".to_string(),
+                    "#2C2C3C".to_string(),
+                    "#3A2C3C".to_string(),
+                ];
+                let current = colors.iter().position(|c| c == &self.config.background_color).unwrap_or(0);
+                let next = (current + 1) % colors.len();
+                self.config.background_color = colors[next].clone();
+                let color_name = match self.config.background_color.as_str() {
+                    "default" => "终端默认",
+                    "#2A2A3E" => "深灰紫",
+                    "#1E1E2E" => "猫鼬暗色",
+                    "#222436" => "深藏青",
+                    "#2C2C3C" => "暖灰",
+                    "#3A2C3C" => "紫罗兰灰",
+                    _ => &self.config.background_color,
                 };
                 self.status_message = Some(format!("背景颜色: {}", color_name));
             }
@@ -637,11 +677,66 @@ impl App {
             _ => {}
         }
     }
-
+    
+    fn handle_game_menu(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Up => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if self.selected < 3 {
+                    self.selected += 1;
+                }
+            }
+            KeyCode::Char('1') => {
+                
+                if let Some(prev) = self.prev_state.take() {
+                    self.state = *prev;
+                } else {
+                    self.state = AppState::Menu;
+                }
+            }
+            KeyCode::Char('2') => {
+                
+                self.state = AppState::SaveSlot;
+            }
+            KeyCode::Char('3') => {
+                
+                self.state = AppState::LoadSlot;
+            }
+            KeyCode::Char('q') => {
+                
+                self.state = AppState::Menu;
+                self.prev_state = None;
+            }
+            KeyCode::Enter => {
+                match self.selected {
+                    0 => {
+                        if let Some(prev) = self.prev_state.take() {
+                            self.state = *prev;
+                        } else {
+                            self.state = AppState::Menu;
+                        }
+                    }
+                    1 => self.state = AppState::SaveSlot,
+                    2 => self.state = AppState::LoadSlot,
+                    3 => {
+                        self.state = AppState::Menu;
+                        self.prev_state = None;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
     
     pub fn handle_event(&mut self, key: KeyCode) {
         self.status_message = None;
-
+    
+        
         match self.state {
             AppState::History => {
                 match key {
@@ -675,11 +770,8 @@ impl App {
                         self.save_game_slot(self.selected + 1);
                     }
                     KeyCode::Esc => {
-                        if let Some(prev) = self.prev_state.take() {
-                            self.state = *prev;
-                        } else {
-                            self.state = AppState::Menu;
-                        }
+                        
+                        self.state = AppState::GameMenu;
                     }
                     KeyCode::Char(c) if c.is_ascii_digit() => {
                         let slot = c.to_digit(10).unwrap() as usize;
@@ -693,51 +785,37 @@ impl App {
             }
             AppState::LoadSlot => {
                 let valid_slots: Vec<usize> = (1..=10).filter(|&i| SaveData::exists(i)).collect();
-                if valid_slots.is_empty() {
-                    match key {
-                        KeyCode::Esc => {
-                            if let Some(prev) = self.prev_state.take() {
-                                self.state = *prev;
-                            } else {
-                                self.state = AppState::Menu;
-                            }
-                        }
-                        _ => {}
-                    }
-                    return;
-                }
-                
                 match key {
                     KeyCode::Up => {
-                        if self.selected > 0 {
-                            self.selected -= 1;
-                        }
+                        if self.selected > 0 { self.selected -= 1; }
                     }
                     KeyCode::Down => {
-                        if self.selected < valid_slots.len() - 1 {
+                        if self.selected < valid_slots.len().saturating_sub(1) {
                             self.selected += 1;
                         }
                     }
                     KeyCode::Enter => {
                         if let Some(&slot) = valid_slots.get(self.selected) {
                             self.load_game_slot(slot);
-                            
                             return;
                         }
                     }
                     KeyCode::Esc => {
-                        if let Some(prev) = self.prev_state.take() {
-                            self.state = *prev;
-                        } else {
-                            self.state = AppState::Menu;
+                        self.state = AppState::GameMenu;
+                    }
+                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                        let slot = c.to_digit(10).unwrap() as usize;
+                        if slot >= 1 && slot <= 10 && SaveData::exists(slot) {
+                            self.load_game_slot(slot);
+                            return;
                         }
                     }
                     _ => {}
                 }
-                
-                if self.selected >= valid_slots.len() {
-                    self.selected = valid_slots.len().saturating_sub(1);
-                }
+                return;
+            }
+            AppState::GameMenu => {
+                self.handle_game_menu(key);
                 return;
             }
             AppState::Input { ref var_name, .. } => {
@@ -749,14 +827,12 @@ impl App {
                             self.input_buffer.clone()
                         };
                         self.variables.set(var_name, &value);
-                        
                         if let Some(prev) = self.prev_state.take() {
                             self.state = *prev;
                         } else {
                             self.state = AppState::Menu;
                         }
                         self.input_buffer.clear();
-                        
                         self.advance_dialogue();
                     }
                     KeyCode::Esc => {
@@ -779,7 +855,8 @@ impl App {
             }
             _ => {}
         }
-
+    
+        
         match &mut self.state {
             AppState::Menu => {
                 match key {
@@ -808,12 +885,12 @@ impl App {
                     KeyCode::Char('a') | KeyCode::Char('A') => self.handle_settings(SettingsAction::AutoPlayToggle),
                     KeyCode::Char('1') => self.handle_settings(SettingsAction::AutoPlaySpeedDown),
                     KeyCode::Char('2') => self.handle_settings(SettingsAction::AutoPlaySpeedUp),
-                    KeyCode::Char('s') | KeyCode::Char('S') => self.handle_settings(SettingsAction::Save),
-                    KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,
                     KeyCode::Char('t') | KeyCode::Char('T') => self.handle_settings(SettingsAction::TextAnimationToggle),
                     KeyCode::Char('3') => self.handle_settings(SettingsAction::TextSpeedDown),
                     KeyCode::Char('4') => self.handle_settings(SettingsAction::TextSpeedUp),
                     KeyCode::Char('b') | KeyCode::Char('B') => self.handle_settings(SettingsAction::BgColorNext),
+                    KeyCode::Char('s') | KeyCode::Char('S') => self.handle_settings(SettingsAction::Save),
+                    KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,
                     _ => {}
                 }
                 return;
@@ -828,8 +905,9 @@ impl App {
                     }
                     KeyCode::Esc | KeyCode::Char('q') => {
                         self.stop_voice();
-                        self.state = AppState::Menu;
-                        self.current_image = None;
+                        self.prev_state = Some(Box::new(self.state.clone()));
+                        self.selected = 0;
+                        self.state = AppState::GameMenu;
                         self.auto_play_timer = None;
                     }
                     KeyCode::Char('s') | KeyCode::Char('S') => {
@@ -871,12 +949,21 @@ impl App {
                         self.open_load_slot();
                         return;
                     }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.stop_voice();
+                        self.prev_state = Some(Box::new(self.state.clone()));
+                        self.selected = 0;
+                        self.state = AppState::GameMenu;
+                        self.auto_play_timer = None;
+                        return;
+                    }
                     _ => {}
                 }
             }
             _ => {}
         }
-
+    
+        
         if let AppState::InChoice { options, selected, .. } = &mut self.state {
             let options_count = options.len();
             match key {
@@ -889,8 +976,9 @@ impl App {
                 KeyCode::Enter => self.select_option(),
                 KeyCode::Esc | KeyCode::Char('q') => {
                     self.stop_voice();
-                    self.state = AppState::Menu;
-                    self.current_image = None;
+                    self.prev_state = Some(Box::new(self.state.clone()));
+                    self.selected = 0;
+                    self.state = AppState::GameMenu;
                 }
                 _ => {}
             }

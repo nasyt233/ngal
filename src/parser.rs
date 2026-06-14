@@ -7,8 +7,8 @@ use crate::defaults;
 #[derive(Debug, Clone)]
 pub struct ImageParams {
     pub filename: Option<String>,
-    pub position: usize,  
-    pub scale: u8,        
+    pub position: usize,
+    pub scale: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ pub enum DialogueCommand {
     Music { filename: String },
     MusicStop,
     Choose { options: Vec<(String, String)> },
-    Load { target: String },
+    Load { file: Option<String>, target: String },
     End,
     Input { prompt: String, var_name: String },
     SetVar { name: String, value: String },
@@ -92,19 +92,23 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
             }
             current_commands.push(DialogueCommand::Choose { options });
         } else if line.starts_with("load:") {
-            let target = line[5..].trim().to_string();
-            current_commands.push(DialogueCommand::Load { target });
+            let rest = &line[5..];
+            if let Some(colon_pos) = rest.find(':') {
+                let file = rest[..colon_pos].to_string();
+                let target = rest[colon_pos+1..].to_string();
+                current_commands.push(DialogueCommand::Load { file: Some(file), target });
+            } else {
+                current_commands.push(DialogueCommand::Load { file: None, target: rest.to_string() });
+            }
         } else if line == "end" {
             current_commands.push(DialogueCommand::End);
         } else if line.starts_with("input:") {
             let rest = &line[6..];
-            // 从右边找最后一个冒号，把提示语和变量名分开
             if let Some(last_colon) = rest.rfind(':') {
                 let prompt = rest[..last_colon].to_string();
-                let var_name = rest[last_colon + 1..].to_string();
+                let var_name = rest[last_colon+1..].to_string();
                 current_commands.push(DialogueCommand::Input { prompt, var_name });
             } else {
-                // 兼容旧格式：没有提示语，只有变量名
                 current_commands.push(DialogueCommand::Input {
                     prompt: "请输入".to_string(),
                     var_name: rest.to_string(),
@@ -141,6 +145,16 @@ fn parse_text_line(line: &str, commands: &mut Vec<DialogueCommand>) {
     commands.push(DialogueCommand::Text { speaker, text, voice });
 }
 
+#[derive(serde::Deserialize)]
+pub struct GameConfig {
+    pub title: String,
+    pub footer: String,
+    pub index: String,
+    pub logo: Option<String>,
+    pub bgm: Option<String>,
+    pub menu_image: Option<String>,
+}
+
 pub fn load_game_config() -> Result<GameConfig> {
     let path = Path::new("assets/game.json");
     let content = if path.exists() {
@@ -167,11 +181,4 @@ pub fn load_dialogue() -> Result<String> {
         defaults::DEFAULT_DIALOGUE.to_string()
     };
     Ok(content)
-}
-
-#[derive(serde::Deserialize)]
-pub struct GameConfig {
-    pub title: String,
-    pub footer: String,
-    pub index: String,
 }

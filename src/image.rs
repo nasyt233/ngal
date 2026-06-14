@@ -7,10 +7,8 @@ use ratatui::{
 };
 use std::path::Path;
 
-
-
-
-pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+/// 加载图片为 RGBA8 格式（用于字符绘制）
+pub fn load_image_rgba(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let img = ImageReader::open(path)
         .map_err(|e| anyhow!("无法打开图片 {}: {}", path.display(), e))?
         .with_guessed_format()
@@ -20,6 +18,7 @@ pub fn load_image(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     Ok(img.to_rgba8())
 }
 
+/// 绘制背景图片（拉伸填满整个区域，不保持宽高比）
 pub fn draw_background(
     frame: &mut Frame,
     area: Rect,
@@ -30,7 +29,6 @@ pub fn draw_background(
     let target_px_w = area_w;
     let target_px_h = area_h * 2;
 
-    
     let resized = image::imageops::resize(
         img,
         target_px_w as u32,
@@ -63,7 +61,7 @@ pub fn draw_background(
     }
 }
 
-
+/// 绘制立绘（支持位置和缩放，高度自动填满区域）
 pub fn draw_portrait(
     frame: &mut Frame,
     area: Rect,
@@ -76,7 +74,6 @@ pub fn draw_portrait(
     let area_h = area.height as usize;
 
     let target_px_h = area_h * 2;
-    
     let scale = target_px_h as f64 / img_h as f64;
     let target_w = (img_w as f64 * scale) as u32;
     let target_h = target_px_h as u32;
@@ -84,7 +81,6 @@ pub fn draw_portrait(
         return;
     }
 
-    
     let resized = image::imageops::resize(
         img,
         target_w,
@@ -92,11 +88,10 @@ pub fn draw_portrait(
         image::imageops::FilterType::Triangle,
     );
 
-    
     let offset_x = match position {
-        1 => 0,  
-        3 => (area_w as i32 - target_w as i32).max(0),  
-        _ => (area_w as i32 - target_w as i32) / 2,    
+        1 => 0,
+        3 => (area_w as i32 - target_w as i32).max(0),
+        _ => (area_w as i32 - target_w as i32) / 2,
     };
 
     let buffer = frame.buffer_mut();
@@ -114,16 +109,14 @@ pub fn draw_portrait(
                 continue;
             }
             let pixel_top = resized.get_pixel(x_px as u32, y_px as u32);
-            let top_alpha = pixel_top[3];
-            if top_alpha < 128 {
-                continue; 
+            if pixel_top[3] < 128 {
+                continue;
             }
             let top_color = Color::Rgb(pixel_top[0], pixel_top[1], pixel_top[2]);
 
             let bottom_color = if y_bottom < target_h as usize {
                 let pixel_bottom = resized.get_pixel(x_px as u32, y_bottom as u32);
-                let bottom_alpha = pixel_bottom[3];
-                if bottom_alpha < 128 {
+                if pixel_bottom[3] < 128 {
                     Color::Reset
                 } else {
                     Color::Rgb(pixel_bottom[0], pixel_bottom[1], pixel_bottom[2])
@@ -138,4 +131,13 @@ pub fn draw_portrait(
                 .set_bg(bottom_color);
         }
     }
+}
+
+/// 自适应绘制（直接调用 draw_portrait，方便兼容）
+pub fn draw_portrait_adaptive(
+    frame: &mut Frame,
+    area: Rect,
+    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+) {
+    draw_portrait(frame, area, img, 2, 100);
 }

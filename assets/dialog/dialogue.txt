@@ -27,9 +27,7 @@ img:鸣朝.png:3:35%
 load:ytnb
 
 [zmd]
-img:终末地.png
-终末地:我最牛逼
-end
+load:zmd.txt:zmdnb
 
 [ytnb]
 img:我.png

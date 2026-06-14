@@ -51,7 +51,8 @@ First run automatically creates the following directories:
 assets/
 ├── game.json       # Game configuration
 ├── dialog/
-│   └── dialogue.txt # Dialogue file
+│   ├─ dialogue.txt # Story file
+│   └─ xxx.txt      # Other stories
 ├── portraits/       # Character portraits
 ├── music/           # Background music
 └── voices/          # Character voices

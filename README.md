@@ -51,7 +51,8 @@ ngal --version    # 显示版本
 assets/
 ├── game.json       # 游戏配置
 ├── dialog/
-│   └── dialogue.txt # 剧情文件
+│   ├─ dialogue.txt # 剧情文件
+│   └─ xxx.txt      # 其他剧情
 ├── portraits/       # 图片立绘
 ├── music/           # 背景音乐
 └── voices/          # 角色语音
@@ -72,7 +73,7 @@ save/                # 存档目录
 | T | 文字动画开关 |
 | 3/4 | 文字速度调节 |
 | B | 切换背景色 |
-| q | 退出程序 |
+| q | 返回菜单/退出程序 |
 
 ## 📜 依赖
 

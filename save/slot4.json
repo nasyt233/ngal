@@ -1,0 +1,9 @@
+{
+  "state": "GameMenu",
+  "menu_selected": 3,
+  "variables": {
+    "name": "玩家"
+  },
+  "current_image": null,
+  "timestamp": "1781391560"
+}

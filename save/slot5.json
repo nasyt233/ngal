@@ -2,13 +2,13 @@
   "state": {
     "InDialogue": {
       "scene_id": "welcome",
-      "cmd_index": 5
+      "cmd_index": 2
     }
   },
-  "menu_selected": 1,
+  "menu_selected": 4,
   "variables": {
     "name": "油条"
   },
   "current_image": null,
-  "timestamp": "1781393188"
+  "timestamp": "1781391150"
 }

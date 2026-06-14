@@ -1,9 +1,9 @@
 use std::path::Path;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -13,12 +13,8 @@ use crate::save::SaveData;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.size();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(area.height.saturating_sub(8)),
-            Constraint::Length(8),
-        ])
+
+    let chunks = Layout::vertical([Constraint::Length(area.height.saturating_sub(8)), Constraint::Length(8)])
         .split(area);
 
     render_top(frame, chunks[0], app);
@@ -28,13 +24,30 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn get_bg_color(app: &App) -> Color {
     match app.config.background_color.as_str() {
         "default" => Color::Reset,
-        "dark_purple" => Color::Rgb(40, 30, 50),
-        "dark_blue" => Color::Rgb(0, 0, 139),
-        "dark_green" => Color::Rgb(0, 100, 0),
-        "dark_red" => Color::Rgb(139, 0, 0),
-        "dark_gray" => Color::Rgb(64, 64, 64),
-        _ => Color::Rgb(40, 30, 50),
+        "#2A2A3E" => Color::Rgb(42, 42, 62),
+        "#1E1E2E" => Color::Rgb(30, 30, 46),
+        "#222436" => Color::Rgb(34, 36, 54),
+        "#2C2C3C" => Color::Rgb(44, 44, 60),
+        "#3A2C3C" => Color::Rgb(58, 44, 60),
+        _ => {
+            if let Some(rgb) = parse_hex_color(&app.config.background_color) {
+                Color::Rgb(rgb.0, rgb.1, rgb.2)
+            } else {
+                Color::Rgb(40, 30, 50)
+            }
+        }
     }
+}
+
+fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some((r, g, b))
 }
 
 fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
@@ -96,6 +109,24 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 height: 4,
             });
 
+            
+            let menu_y = inner.y + y_offset + 4;
+            let remaining_height = inner.height.saturating_sub(y_offset + 4);
+            
+            let (menu_area, image_area) = if app.menu_image.is_some() {
+                let split = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(Rect {
+                        x: inner.x,
+                        y: menu_y,
+                        width: inner.width,
+                        height: remaining_height,
+                    });
+                (split[0], Some(split[1]))
+            } else {
+                (Rect { x: inner.x, y: menu_y, width: inner.width, height: remaining_height }, None)
+            };
+
+            
             let items: Vec<ListItem> = app
                 .menu_options
                 .iter()
@@ -118,16 +149,23 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)));
 
             let list_height = app.menu_options.len() as u16 * 2;
-            let available_height = inner.height.saturating_sub(y_offset + 4);
-            let start_y = inner.y + y_offset + 4 + (available_height.saturating_sub(list_height)) / 2;
+            let start_y = menu_area.y + (menu_area.height.saturating_sub(list_height)) / 2;
             let list_area = Rect {
-                x: inner.x + (inner.width.saturating_sub(30)) / 2,
+                x: menu_area.x + (menu_area.width.saturating_sub(30)) / 2,
                 y: start_y,
-                width: 30.min(inner.width),
-                height: list_height.min(available_height),
+                width: 30.min(menu_area.width),
+                height: list_height.min(menu_area.height),
             };
             frame.render_widget(list, list_area);
 
+            
+            if let Some(img) = &app.menu_image {
+                if let Some(img_area) = image_area {
+                    image::draw_portrait(frame, img_area, img, 2, 100);
+                }
+            }
+
+            
             let version = format!("v{}", app.config.version);
             let version_para = Paragraph::new(version)
                 .style(Style::default().fg(Color::Rgb(150, 150, 150)).bg(bg_color))
@@ -143,7 +181,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
         crate::app::AppState::Settings => {
             let text = vec![
                 Line::from(vec![
-                    Span::styled("⚙️ 游戏设置", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD))
+                    Span::styled("⚙️ 音量设置", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD))
                 ]),
                 Line::from(""),
                 Line::from(vec![
@@ -184,12 +222,12 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                     Span::styled(
                         match app.config.background_color.as_str() {
                             "default" => "无色",
-                            "dark_purple" => "深紫色",
-                            "dark_blue" => "深蓝色",
-                            "dark_green" => "深绿色",
-                            "dark_red" => "深红色",
-                            "dark_gray" => "深灰色",
-                            _ => "深紫色",
+                            "#2A2A3E" => "深灰紫",
+                            "#1E1E2E" => "猫鼬暗色",
+                            "#222436" => "深藏青",
+                            "#2C2C3C" => "暖灰",
+                            "#3A2C3C" => "紫罗兰灰",
+                            _ => &app.config.background_color,
                         },
                         Style::default().fg(Color::Rgb(100, 255, 100))
                     ),
@@ -283,10 +321,33 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 width: 60.min(inner.width),
                 height: 20.min(inner.height),
             };
-            frame.render_widget(Clear, list_area);
             frame.render_stateful_widget(list, list_area, &mut list_state);
         }
-        
+        crate::app::AppState::GameMenu => {
+            let items = vec!["1. 返回游戏", "2. 存档", "3. 读档", "q. 返回主界面"];
+            let list_items: Vec<ListItem> = items.iter().enumerate().map(|(i, text)| {
+                let style = if i == app.selected {
+                    Style::default().fg(Color::Rgb(255, 255, 0)).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Rgb(200, 200, 200))
+                };
+                ListItem::new(Line::from(Span::styled(*text, style.bg(bg_color))))
+            }).collect();
+
+            let list = List::new(list_items)
+                .block(Block::default().borders(Borders::ALL).title("游戏菜单").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
+                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)));
+
+            let list_height = items.len() as u16 * 2;
+            let start_y = inner.y + (inner.height.saturating_sub(list_height)) / 2;
+            let list_area = Rect {
+                x: inner.x + (inner.width.saturating_sub(30)) / 2,
+                y: start_y,
+                width: 30.min(inner.width),
+                height: list_height.min(inner.height),
+            };
+            frame.render_widget(list, list_area);
+        }
         crate::app::AppState::SaveSlot => {
             let items: Vec<ListItem> = (1..=10).map(|i| {
                 let exists = SaveData::exists(i);
@@ -303,95 +364,87 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                     Style::default()
                         .fg(Color::Rgb(255, 255, 0))
                         .add_modifier(Modifier::BOLD)
-                        .bg(bg_color)
                 } else if exists {
                     Style::default()
                         .fg(Color::Rgb(200, 200, 200))
-                        .bg(bg_color)
                 } else {
                     Style::default()
-                        .fg(Color::Rgb(80, 80, 80))
-                        .bg(bg_color)
+                        .fg(Color::Rgb(100, 100, 100))
                 };
-                ListItem::new(Line::from(Span::styled(info, style)))
+                ListItem::new(Line::from(Span::styled(info, style.bg(bg_color))))
             }).collect();
-        
-            let list_height = 10;
-            let display_height = list_height.min(inner.height);
-            let start_y = inner.y + (inner.height.saturating_sub(display_height)) / 2;
-            let list_area = Rect {
-                x: inner.x + (inner.width.saturating_sub(50)) / 2,
-                y: start_y,
-                width: 50.min(inner.width),
-                height: display_height,
-            };
-        
+
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("选择存档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
-                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)).bg(bg_color))
+                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
                 .highlight_symbol("> ");
-            
-            let mut list_state = ratatui::widgets::ListState::default();
-            list_state.select(Some(app.selected));
-            frame.render_stateful_widget(list, list_area, &mut list_state);
+
+            let list_height = 10;
+            let start_y = inner.y + (inner.height.saturating_sub(list_height)) / 2;
+            let list_area = Rect {
+                x: inner.x + (inner.width.saturating_sub(40)) / 2,
+                y: start_y,
+                width: 40.min(inner.width),
+                height: list_height.min(inner.height),
+            };
+            frame.render_widget(list, list_area);
         }
-        
-        
         crate::app::AppState::LoadSlot => {
             let valid_slots: Vec<usize> = (1..=10).filter(|&i| SaveData::exists(i)).collect();
             
-            
-            let items: Vec<ListItem> = (1..=10).map(|i| {
-                let exists = SaveData::exists(i);
-                let info = if exists {
-                    if let Ok(data) = SaveData::load(i) {
-                        format!("存档槽 {} - {}", i, data.timestamp)
+            if valid_slots.is_empty() {
+                let para = Paragraph::new("暂无存档，请先进行游戏并保存\n\n按 ESC 返回")
+                    .style(Style::default().fg(Color::Rgb(255, 200, 100)).bg(bg_color))
+                    .alignment(Alignment::Center)
+                    .block(Block::default().borders(Borders::ALL).title("选择读档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)));
+                let para_area = Rect {
+                    x: inner.x + (inner.width.saturating_sub(40)) / 2,
+                    y: inner.y + (inner.height.saturating_sub(6)) / 2,
+                    width: 40.min(inner.width),
+                    height: 6.min(inner.height),
+                };
+                frame.render_widget(para, para_area);
+            } else {
+                let items: Vec<ListItem> = (1..=10).map(|i| {
+                    let exists = SaveData::exists(i);
+                    let info = if exists {
+                        if let Ok(data) = SaveData::load(i) {
+                            format!("存档槽 {} - {}", i, data.timestamp)
+                        } else {
+                            format!("存档槽 {} (有存档)", i)
+                        }
                     } else {
-                        format!("存档槽 {} (有存档)", i)
-                    }
-                } else {
-                    format!("存档槽 {} (空)", i)
+                        format!("存档槽 {} (空)", i)
+                    };
+                    let style = if exists && valid_slots.iter().position(|&x| x == i) == Some(app.selected) {
+                        Style::default()
+                            .fg(Color::Rgb(255, 255, 0))
+                            .add_modifier(Modifier::BOLD)
+                    } else if exists {
+                        Style::default()
+                            .fg(Color::Rgb(200, 200, 200))
+                    } else {
+                        Style::default()
+                            .fg(Color::Rgb(100, 100, 100))
+                    };
+                    ListItem::new(Line::from(Span::styled(info, style.bg(bg_color))))
+                }).collect();
+
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title("选择读档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
+                    .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
+                    .highlight_symbol("> ");
+
+                let list_height = 10;
+                let start_y = inner.y + (inner.height.saturating_sub(list_height)) / 2;
+                let list_area = Rect {
+                    x: inner.x + (inner.width.saturating_sub(40)) / 2,
+                    y: start_y,
+                    width: 40.min(inner.width),
+                    height: list_height.min(inner.height),
                 };
-                let style = if exists && valid_slots.iter().position(|&x| x == i) == Some(app.selected) {
-                    Style::default()
-                        .fg(Color::Rgb(255, 255, 0))
-                        .add_modifier(Modifier::BOLD)
-                        .bg(bg_color)
-                } else if exists {
-                    Style::default()
-                        .fg(Color::Rgb(200, 200, 200))
-                        .bg(bg_color)
-                } else {
-                    Style::default()
-                        .fg(Color::Rgb(80, 80, 80))
-                        .bg(bg_color)
-                };
-                ListItem::new(Line::from(Span::styled(info, style)))
-            }).collect();
-        
-            let list_height = 10;
-            let display_height = list_height.min(inner.height);
-            let start_y = inner.y + (inner.height.saturating_sub(display_height)) / 2;
-            let list_area = Rect {
-                x: inner.x + (inner.width.saturating_sub(50)) / 2,
-                y: start_y,
-                width: 50.min(inner.width),
-                height: display_height,
-            };
-        
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("选择读档槽位").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
-                .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)).bg(bg_color))
-                .highlight_symbol("> ");
-            
-            let mut list_state = ratatui::widgets::ListState::default();
-            
-            if !valid_slots.is_empty() {
-                
-                let actual_index = valid_slots.iter().position(|&x| x == valid_slots[app.selected]).unwrap_or(0);
-                list_state.select(Some(actual_index));
+                frame.render_widget(list, list_area);
             }
-            frame.render_stateful_widget(list, list_area, &mut list_state);
         }
         crate::app::AppState::Input { ref prompt, .. } => {
             let input_display = format!("{}: ", prompt);
@@ -399,7 +452,6 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 Line::from(Span::styled(input_display, Style::default().fg(Color::White))),
                 Line::from(Span::styled("(按回车确认，ESC取消)", Style::default().fg(Color::Gray))),
             ])
-            
             .style(Style::default().bg(bg_color))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL).title("输入").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)));
@@ -415,7 +467,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             
             if let Some(bg_filename) = &app.current_background {
                 let bg_path = Path::new("assets/portraits").join(bg_filename);
-                if let Ok(bg_img) = image::load_image(&bg_path) {
+                if let Ok(bg_img) = image::load_image_rgba(&bg_path) {
                     image::draw_background(frame, inner, &bg_img);
                 }
             }
@@ -427,7 +479,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                         cached.clone()
                     } else {
                         let img_path = Path::new("assets/portraits").join(filename);
-                        match image::load_image(&img_path) {
+                        match image::load_image_rgba(&img_path) {
                             Ok(img) => {
                                 app.image_cache.insert(filename.clone(), img.clone());
                                 img
@@ -481,9 +533,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
 
 fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
     let bg_color = get_bg_color(app);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
+    let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)])
         .split(area);
 
     let name_area = chunks[0];
@@ -508,6 +558,11 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
         crate::app::AppState::History => (
             "历史记录".to_string(),
             "按 ESC 或 H 关闭".to_string(),
+            app.status_message.as_deref(),
+        ),
+        crate::app::AppState::GameMenu => (
+            "游戏菜单".to_string(),
+            "1返回游戏 2存档 3读档 q返回主界面 | ↑/↓选择 Enter确认".to_string(),
             app.status_message.as_deref(),
         ),
         crate::app::AppState::SaveSlot => (

@@ -97,6 +97,7 @@ end
 |---------|--------|-------------|
 | Choice Branch | `choose:option1:scene1\|option2:scene2` | Use vertical bar to separate multiple options |
 | Jump | `load:scene_name` | Jump to specified scene |
+| Jump file | `load:story file.txt:scene` | Jump to external scene |p
 | End Game | `end` | Return to main menu |
 
 ## Path Notes

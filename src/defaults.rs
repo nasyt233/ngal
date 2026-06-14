@@ -3,7 +3,10 @@
 pub const DEFAULT_GAME_CONFIG: &str = r#"{
   "title": "原神 VS 鸣朝",
   "footer": "按回车继续 | q 返回主菜单 | H 历史 | A 自动播放",
-  "index": "dialog/dialogue.txt"
+  "index": "dialog/dialogue.txt",
+  "logo": "title.png",
+  "bgm": "title.mp3",
+  "menu_image": "menu_right.png"
 }"#;
 
 pub const DEFAULT_DIALOGUE: &str = r#"[welcome]
@@ -27,8 +30,7 @@ img:原神.png
 load:ytnb
 
 [zmd]
-img:终末地.png
-终末地:我最牛逼
+load:zmd.txt:zmdnb
 end
 
 [ytnb]

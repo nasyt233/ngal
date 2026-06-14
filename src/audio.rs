@@ -18,8 +18,8 @@ pub fn play_audio(path: &Path, background: bool, volume: u8) -> Result<Child> {
         .arg("--no-input-cursor")
         .arg("--no-resume-playback")
         .arg("--idle=no")
-        .arg("--audio-exclusive=no")   // 关键：不独占音频设备，允许多个音频混合
-        .arg("--audio-buffer=0.5")     // 缓冲设置，减少延迟
+        .arg("--audio-exclusive=no")   
+        .arg("--audio-buffer=0.5")     
         .arg(format!("--volume={}", volume_str))
         .arg(path)
         .stdout(std::process::Stdio::null())
