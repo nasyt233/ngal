@@ -22,6 +22,11 @@
 
 ### 安装
 
+**通用脚本一键安装**
+```bash
+bash -c "$(curl -L https://raw.gitcode.com/nasyt/ngal/raw/main/install.sh)"
+```
+
 **从源码编译**
 ```bash
 git clone https://github.com/nasyt233/ngal.git

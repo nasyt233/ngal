@@ -21,6 +21,10 @@
 ## 🚀 Quick Start
 
 ### Installation
+**Universal Script One-Click Installation**
+```bash
+bash -c "$(curl -L https://raw.gitcode.com/nasyt/ngal/raw/main/install.sh)"
+```
 
 **Build from source**
 ```bash
