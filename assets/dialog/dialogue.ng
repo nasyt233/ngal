@@ -1,15 +1,4 @@
-//! 默认配置和剧情文件
-
-pub const DEFAULT_GAME_CONFIG: &str = r#"{
-  "title": "ngal TUI终端GalGame小说引擎",
-  "footer": "按回车继续 | q 返回主菜单 | H 历史 | A 自动播放",
-  "index": "dialog/dialogue.ng",
-  "logo": "logo.png",
-  "bgm": "bgm.mp3",
-  "menu_image": "logo.png"
-}"#;
-
-pub const DEFAULT_DIALOGUE: &str = r#"# ngal 示例教学默认剧情    # 符号为注释
+# ngal 示例教学默认剧情    # 符号为注释
 
 [welcome]               # [welcome]为剧情入口
 第一章                   # 没角色名直接显示文字
@@ -68,4 +57,4 @@ load:exit
 系统:游戏结束
 bg:    # 关闭背景
 music: # 停止播放音乐
-end    # 结束游戏"#;
+end    # 结束游戏

@@ -2,9 +2,9 @@
   "bgm_volume": 55,
   "voice_volume": 80,
   "auto_play": false,
-  "auto_play_speed": 3.0,
-  "text_animation": false,
+  "auto_play_speed": 2.0,
+  "text_animation": true,
   "text_speed": 50,
   "background_color": "#222436",
-  "version": "0.9.0"
+  "version": "1.0.0"
 }

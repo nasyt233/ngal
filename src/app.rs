@@ -1,22 +1,22 @@
+use ::image::ImageBuffer;
+use ::image::Rgba;
+use anyhow::Result;
+use crossterm::event::KeyCode;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Child;
 use std::time::{Duration, Instant};
-use anyhow::Result;
-use crossterm::event::KeyCode;
-use ::image::ImageBuffer;
-use ::image::Rgba;
-use serde::{Deserialize, Serialize};
 
 use crate::audio;
 use crate::config::Config;
-use crate::parser::{self, DialogueCommand};
 use crate::image;
-use crate::variables::Variables;
-use crate::save::SaveData;
 use crate::parser::ImageParams;
+use crate::parser::{self, DialogueCommand};
+use crate::save::SaveData;
+use crate::variables::Variables;
 
 const HISTORY_MAX: usize = 50;
 
@@ -30,9 +30,9 @@ pub enum AppState {
     SaveSlot,
     LoadSlot,
     Input {
-            prompt: String,
-            var_name: String,
-        },
+        prompt: String,
+        var_name: String,
+    },
     InDialogue {
         scene_id: String,
         cmd_index: usize,
@@ -42,7 +42,6 @@ pub enum AppState {
         options: Vec<(String, String)>,
         selected: usize,
     },
-    
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -84,8 +83,8 @@ pub struct App {
     pub current_background: Option<String>,
     pub current_image_params: Option<ImageParams>,
     pub image_cache: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    pub target_text: String,        
-    pub display_text: String,       
+    pub target_text: String,
+    pub display_text: String,
     pub last_char_time: Instant,
     pub menu_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
 }
@@ -93,19 +92,16 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self> {
         Self::ensure_directories()?;
-    
+
         let game_config = parser::load_game_config()?;
         let dialogue_content = parser::load_dialogue()?;
         let scenes = parser::parse_dialogue_file(&dialogue_content)?;
-    
-        let config = Config::load()?;
-    
-        
-        let image_cache = HashMap::new();
-    
 
-        let portraits = HashMap::new();  
-    
+        let config = Config::load()?;
+
+        let image_cache = HashMap::new();
+
+        let portraits = HashMap::new();
 
         let logo = if let Some(logo_file) = &game_config.logo {
             let logo_path = Path::new("assets/portraits").join(logo_file);
@@ -113,10 +109,10 @@ impl App {
         } else {
             None
         };
-        
+
         let menu_image = if let Some(ref path) = game_config.menu_image {
             let img_path = Path::new("assets/portraits").join(path);
-            image::load_image_rgba(&img_path).ok()  
+            image::load_image_rgba(&img_path).ok()
         } else {
             None
         };
@@ -124,14 +120,14 @@ impl App {
         let title_bgm_path = if let Some(bgm_file) = &game_config.bgm {
             Path::new("assets/music").join(bgm_file)
         } else {
-            Path::new("assets/music/title.mp3").to_path_buf()   
+            Path::new("assets/music/title.mp3").to_path_buf()
         };
         let bgm_process = if title_bgm_path.exists() {
             audio::play_audio(&title_bgm_path, true, config.bgm_volume).ok()
         } else {
             None
         };
-    
+
         Ok(Self {
             state: AppState::Menu,
             menu_options: vec![
@@ -160,7 +156,7 @@ impl App {
             input_buffer: String::new(),
             current_background: None,
             current_image_params: None,
-            image_cache,  
+            image_cache,
             target_text: String::new(),
             display_text: String::new(),
             last_char_time: Instant::now(),
@@ -183,7 +179,6 @@ impl App {
         Ok(())
     }
 
-    
     pub fn play_bgm(&mut self, filename: &str) {
         self.stop_bgm();
         let music_path = Path::new("assets/music").join(filename);
@@ -223,7 +218,6 @@ impl App {
         }
     }
 
-    
     pub fn add_to_history(&mut self, speaker: Option<&str>, text: &str) {
         let speaker_clone = speaker.map(|s| s.to_string());
         self.history.push_back((speaker_clone, text.to_string()));
@@ -232,15 +226,17 @@ impl App {
         }
     }
 
-    
     fn interpolate_text(&self, text: &str) -> String {
         self.variables.interpolate(text)
     }
 
-    
     pub fn execute_command(&mut self, cmd: DialogueCommand) {
         match cmd {
-            DialogueCommand::Text { speaker, text, voice } => {
+            DialogueCommand::Text {
+                speaker,
+                text,
+                voice,
+            } => {
                 let interpolated = self.interpolate_text(&text);
                 self.target_text = interpolated.clone();
                 self.display_text = String::new();
@@ -254,13 +250,13 @@ impl App {
                 let interpolated_speaker = speaker.as_ref().map(|s| self.variables.interpolate(s));
                 let interpolated_text = self.variables.interpolate(&text);
                 let final_speaker = interpolated_speaker.as_deref();
-                
+
                 if let Some(s) = final_speaker {
                     self.add_to_history(Some(s), &interpolated_text);
                 } else {
                     self.add_to_history(None, &interpolated_text);
                 }
-                
+
                 if let Some(v) = voice {
                     self.play_voice_by_file(final_speaker.unwrap_or(""), Some(&v));
                 } else if let Some(s) = final_speaker {
@@ -295,7 +291,11 @@ impl App {
                     scene_id: target,
                     cmd_index: 0,
                 };
-                if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
+                if let AppState::InDialogue {
+                    scene_id,
+                    cmd_index,
+                } = &self.state
+                {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(first_cmd) = scene.commands.get(*cmd_index) {
                             self.execute_command(first_cmd.clone());
@@ -310,34 +310,60 @@ impl App {
                 self.stop_bgm();
             }
             DialogueCommand::Input { prompt, var_name } => {
-                
                 self.prev_state = Some(Box::new(self.state.clone()));
                 self.state = AppState::Input { prompt, var_name };
             }
             DialogueCommand::SetVar { name, value } => {
-                let interpolated = self.interpolate_text(&value);
-                self.variables.set(&name, &interpolated);
+                // 尝试作为表达式求值
+                let final_value = if let Some(computed) = self.variables.eval_expr(&value) {
+                    computed
+                } else {
+                    // 如果表达式无效，则直接使用原值（可能包含未替换的变量，作为字符串）
+                    self.interpolate_text(&value)
+                };
+                self.variables.set(&name, &final_value);
                 self.advance_dialogue();
             }
             DialogueCommand::Background { filename } => {
                 self.current_background = filename;
             }
+            DialogueCommand::If { condition, target } => {
+                if self.variables.eval_condition(&condition) {
+                    // 条件成立，跳转到目标场景
+                    self.state = AppState::InDialogue {
+                        scene_id: target,
+                        cmd_index: 0,
+                    };
+                    // 执行目标场景的第一个命令（如果有）
+                    if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
+                        if let Some(scene) = self.scenes.get(scene_id) {
+                            if let Some(first_cmd) = scene.commands.get(*cmd_index) {
+                                self.execute_command(first_cmd.clone());
+                            }
+                        }
+                    }
+                    self.skip_non_interactive_commands();
+                }
+            }
         }
     }
 
-    
     pub fn skip_non_interactive_commands(&mut self) {
         loop {
             match &self.state {
-                AppState::InDialogue { scene_id, cmd_index } => {
+                AppState::InDialogue {
+                    scene_id,
+                    cmd_index,
+                } => {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(cmd) = scene.commands.get(*cmd_index) {
                             match cmd {
-                                DialogueCommand::Image { .. } |
-                                DialogueCommand::Background { .. } |
-                                DialogueCommand::Music { .. } |
-                                DialogueCommand::MusicStop |
-                                DialogueCommand::SetVar { .. } => {
+                                DialogueCommand::Image { .. }
+                                | DialogueCommand::Background { .. }
+                                | DialogueCommand::Music { .. }
+                                | DialogueCommand::MusicStop
+                                | DialogueCommand::SetVar { .. }
+                                | DialogueCommand::If { .. } => {
                                     let next_index = cmd_index + 1;
                                     if let Some(next_cmd) = scene.commands.get(next_index) {
                                         self.state = AppState::InDialogue {
@@ -365,8 +391,17 @@ impl App {
         }
     }
 
-    
     pub fn start_game(&mut self) {
+        self.variables = Variables::new();
+        self.current_image_params = None;
+        self.current_background = None;
+        self.target_text = String::new();
+        self.display_text = String::new();
+        self.input_buffer = String::new();
+        self.prev_state = None;
+        // 可选：清空历史
+        // self.history.clear();
+    
         let initial_scene = "welcome".to_string();
         if self.scenes.contains_key(&initial_scene) {
             let scene_id = initial_scene.clone();
@@ -387,7 +422,6 @@ impl App {
         self.status_message = None;
     }
 
-    
     pub fn load_external_file(&mut self, file_name: &str) -> Result<()> {
         let path = Path::new("assets/dialog").join(file_name);
         let content = fs::read_to_string(&path)?;
@@ -399,43 +433,48 @@ impl App {
         Ok(())
     }
 
-
     pub fn save_game_slot(&mut self, slot: usize) {
-        
         let save_state = if let Some(prev) = &self.prev_state {
             prev.as_ref().clone()
         } else {
             self.state.clone()
         };
-        
-        if let Err(e) = SaveData::save(slot, &save_state, self.selected, &self.variables, self.current_image.clone()) {
+
+        if let Err(e) = SaveData::save(
+            slot,
+            &save_state,
+            self.selected,
+            &self.variables,
+            self.current_image.clone(),
+        ) {
             self.status_message = Some(format!("存档失败: {}", e));
         } else {
             self.status_message = Some(format!("已存档到槽位 {}", slot));
         }
-        
-        
+
         if let Some(prev) = self.prev_state.take() {
             self.state = *prev;
         } else {
             self.state = AppState::Menu;
         }
     }
-    
+
     pub fn load_game_slot(&mut self, slot: usize) {
         match SaveData::load(slot) {
             Ok(data) => {
-                
                 self.state = data.state;
                 self.selected = data.menu_selected;
                 self.variables.deserialize(data.variables);
                 self.current_image = data.current_image;
                 self.status_message = Some(format!("从槽位 {} 读档成功", slot));
-                
+
                 self.prev_state = None;
-                
-                
-                if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
+
+                if let AppState::InDialogue {
+                    scene_id,
+                    cmd_index,
+                } = &self.state
+                {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(cmd) = scene.commands.get(*cmd_index) {
                             self.execute_command(cmd.clone());
@@ -445,7 +484,7 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("读档失败: {}", e));
-                
+
                 if let Some(prev) = self.prev_state.take() {
                     self.state = *prev;
                 } else {
@@ -456,21 +495,23 @@ impl App {
     }
 
     pub fn open_save_slot(&mut self) {
-        
         self.prev_state = Some(Box::new(self.state.clone()));
         self.selected = 0;
         self.state = AppState::SaveSlot;
     }
-    
+
     pub fn open_load_slot(&mut self) {
         self.prev_state = Some(Box::new(self.state.clone()));
         self.selected = 0;
         self.state = AppState::LoadSlot;
     }
-    
+
     pub fn advance_dialogue(&mut self) {
         let (current_scene_id, current_cmd_index) = match &self.state {
-            AppState::InDialogue { scene_id, cmd_index } => (scene_id.clone(), *cmd_index),
+            AppState::InDialogue {
+                scene_id,
+                cmd_index,
+            } => (scene_id.clone(), *cmd_index),
             _ => return,
         };
 
@@ -497,12 +538,13 @@ impl App {
         }
     }
 
-    
     pub fn select_option(&mut self) {
         let (options, selected, _current_scene_id) = match &self.state {
-            AppState::InChoice { options, selected, scene_id } => {
-                (options.clone(), *selected, scene_id.clone())
-            }
+            AppState::InChoice {
+                options,
+                selected,
+                scene_id,
+            } => (options.clone(), *selected, scene_id.clone()),
             _ => return,
         };
 
@@ -520,7 +562,6 @@ impl App {
         }
     }
 
-    
     pub fn handle_settings(&mut self, action: SettingsAction) {
         match action {
             SettingsAction::BgmUp => {
@@ -571,11 +612,18 @@ impl App {
             }
             SettingsAction::TextAnimationToggle => {
                 self.config.text_animation = !self.config.text_animation;
-                
+
                 if !self.config.text_animation && self.display_text != self.target_text {
                     self.display_text = self.target_text.clone();
                 }
-                self.status_message = Some(if self.config.text_animation { "文字动画开启" } else { "文字动画关闭" }.to_string());
+                self.status_message = Some(
+                    if self.config.text_animation {
+                        "文字动画开启"
+                    } else {
+                        "文字动画关闭"
+                    }
+                    .to_string(),
+                );
             }
             SettingsAction::TextSpeedUp => {
                 if self.config.text_speed <= 90 {
@@ -605,7 +653,10 @@ impl App {
                     "#2C2C3C".to_string(),
                     "#3A2C3C".to_string(),
                 ];
-                let current = colors.iter().position(|c| c == &self.config.background_color).unwrap_or(0);
+                let current = colors
+                    .iter()
+                    .position(|c| c == &self.config.background_color)
+                    .unwrap_or(0);
                 let next = (current + 1) % colors.len();
                 self.config.background_color = colors[next].clone();
                 let color_name = match self.config.background_color.as_str() {
@@ -621,7 +672,7 @@ impl App {
             }
         }
     }
-    
+
     fn apply_bgm_volume(&mut self) {
         if self.bgm_process.is_some() {
             self.stop_bgm();
@@ -633,12 +684,16 @@ impl App {
         }
     }
 
-    
     pub fn current_speaker(&self) -> Option<String> {
         match &self.state {
-            AppState::InDialogue { scene_id, cmd_index } => {
+            AppState::InDialogue {
+                scene_id,
+                cmd_index,
+            } => {
                 if let Some(scene) = self.scenes.get(scene_id) {
-                    if let Some(DialogueCommand::Text { speaker, .. }) = scene.commands.get(*cmd_index) {
+                    if let Some(DialogueCommand::Text { speaker, .. }) =
+                        scene.commands.get(*cmd_index)
+                    {
                         if let Some(s) = speaker {
                             return Some(self.variables.interpolate(s));
                         }
@@ -652,9 +707,13 @@ impl App {
 
     pub fn current_text(&self) -> Option<String> {
         match &self.state {
-            AppState::InDialogue { scene_id, cmd_index } => {
+            AppState::InDialogue {
+                scene_id,
+                cmd_index,
+            } => {
                 if let Some(scene) = self.scenes.get(scene_id) {
-                    if let Some(DialogueCommand::Text { text, .. }) = scene.commands.get(*cmd_index) {
+                    if let Some(DialogueCommand::Text { text, .. }) = scene.commands.get(*cmd_index)
+                    {
                         return Some(self.interpolate_text(text));
                     }
                 }
@@ -664,7 +723,6 @@ impl App {
         }
     }
 
-    
     pub fn execute_menu(&mut self) {
         match self.selected {
             0 => self.start_game(),
@@ -677,7 +735,7 @@ impl App {
             _ => {}
         }
     }
-    
+
     fn handle_game_menu(&mut self, key: KeyCode) {
         match key {
             KeyCode::Up => {
@@ -691,7 +749,6 @@ impl App {
                 }
             }
             KeyCode::Char('1') => {
-                
                 if let Some(prev) = self.prev_state.take() {
                     self.state = *prev;
                 } else {
@@ -699,44 +756,38 @@ impl App {
                 }
             }
             KeyCode::Char('2') => {
-                
                 self.state = AppState::SaveSlot;
             }
             KeyCode::Char('3') => {
-                
                 self.state = AppState::LoadSlot;
             }
             KeyCode::Char('q') => {
-                
                 self.state = AppState::Menu;
                 self.prev_state = None;
             }
-            KeyCode::Enter => {
-                match self.selected {
-                    0 => {
-                        if let Some(prev) = self.prev_state.take() {
-                            self.state = *prev;
-                        } else {
-                            self.state = AppState::Menu;
-                        }
-                    }
-                    1 => self.state = AppState::SaveSlot,
-                    2 => self.state = AppState::LoadSlot,
-                    3 => {
+            KeyCode::Enter => match self.selected {
+                0 => {
+                    if let Some(prev) = self.prev_state.take() {
+                        self.state = *prev;
+                    } else {
                         self.state = AppState::Menu;
-                        self.prev_state = None;
                     }
-                    _ => {}
                 }
-            }
+                1 => self.state = AppState::SaveSlot,
+                2 => self.state = AppState::LoadSlot,
+                3 => {
+                    self.state = AppState::Menu;
+                    self.prev_state = None;
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
-    
+
     pub fn handle_event(&mut self, key: KeyCode) {
         self.status_message = None;
-    
-        
+
         match self.state {
             AppState::History => {
                 match key {
@@ -761,16 +812,19 @@ impl App {
             AppState::SaveSlot => {
                 match key {
                     KeyCode::Up => {
-                        if self.selected > 0 { self.selected -= 1; }
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
                     }
                     KeyCode::Down => {
-                        if self.selected < 9 { self.selected += 1; }
+                        if self.selected < 9 {
+                            self.selected += 1;
+                        }
                     }
                     KeyCode::Enter => {
                         self.save_game_slot(self.selected + 1);
                     }
                     KeyCode::Esc => {
-                        
                         self.state = AppState::GameMenu;
                     }
                     KeyCode::Char(c) if c.is_ascii_digit() => {
@@ -787,7 +841,9 @@ impl App {
                 let valid_slots: Vec<usize> = (1..=10).filter(|&i| SaveData::exists(i)).collect();
                 match key {
                     KeyCode::Up => {
-                        if self.selected > 0 { self.selected -= 1; }
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
                     }
                     KeyCode::Down => {
                         if self.selected < valid_slots.len().saturating_sub(1) {
@@ -855,16 +911,19 @@ impl App {
             }
             _ => {}
         }
-    
-        
+
         match &mut self.state {
             AppState::Menu => {
                 match key {
                     KeyCode::Up => {
-                        if self.selected > 0 { self.selected -= 1; }
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
                     }
                     KeyCode::Down => {
-                        if self.selected < self.menu_options.len() - 1 { self.selected += 1; }
+                        if self.selected < self.menu_options.len() - 1 {
+                            self.selected += 1;
+                        }
                     }
                     KeyCode::Enter => self.execute_menu(),
                     KeyCode::Char('q') => self.should_quit = true,
@@ -878,18 +937,30 @@ impl App {
             }
             AppState::Settings => {
                 match key {
-                    KeyCode::Char('+') | KeyCode::Char('=') => self.handle_settings(SettingsAction::BgmUp),
-                    KeyCode::Char('-') | KeyCode::Char('_') => self.handle_settings(SettingsAction::BgmDown),
+                    KeyCode::Char('+') | KeyCode::Char('=') => {
+                        self.handle_settings(SettingsAction::BgmUp)
+                    }
+                    KeyCode::Char('-') | KeyCode::Char('_') => {
+                        self.handle_settings(SettingsAction::BgmDown)
+                    }
                     KeyCode::Char('[') => self.handle_settings(SettingsAction::VoiceDown),
                     KeyCode::Char(']') => self.handle_settings(SettingsAction::VoiceUp),
-                    KeyCode::Char('a') | KeyCode::Char('A') => self.handle_settings(SettingsAction::AutoPlayToggle),
+                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                        self.handle_settings(SettingsAction::AutoPlayToggle)
+                    }
                     KeyCode::Char('1') => self.handle_settings(SettingsAction::AutoPlaySpeedDown),
                     KeyCode::Char('2') => self.handle_settings(SettingsAction::AutoPlaySpeedUp),
-                    KeyCode::Char('t') | KeyCode::Char('T') => self.handle_settings(SettingsAction::TextAnimationToggle),
+                    KeyCode::Char('t') | KeyCode::Char('T') => {
+                        self.handle_settings(SettingsAction::TextAnimationToggle)
+                    }
                     KeyCode::Char('3') => self.handle_settings(SettingsAction::TextSpeedDown),
                     KeyCode::Char('4') => self.handle_settings(SettingsAction::TextSpeedUp),
-                    KeyCode::Char('b') | KeyCode::Char('B') => self.handle_settings(SettingsAction::BgColorNext),
-                    KeyCode::Char('s') | KeyCode::Char('S') => self.handle_settings(SettingsAction::Save),
+                    KeyCode::Char('b') | KeyCode::Char('B') => {
+                        self.handle_settings(SettingsAction::BgColorNext)
+                    }
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        self.handle_settings(SettingsAction::Save)
+                    }
                     KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,
                     _ => {}
                 }
@@ -934,44 +1005,48 @@ impl App {
                 }
                 return;
             }
-            AppState::InChoice { .. } => {
-                match key {
-                    KeyCode::Char('h') | KeyCode::Char('H') => {
-                        self.prev_state = Some(Box::new(self.state.clone()));
-                        self.state = AppState::History;
-                        return;
-                    }
-                    KeyCode::Char('s') | KeyCode::Char('S') => {
-                        self.open_save_slot();
-                        return;
-                    }
-                    KeyCode::Char('l') | KeyCode::Char('L') => {
-                        self.open_load_slot();
-                        return;
-                    }
-                    KeyCode::Esc | KeyCode::Char('q') => {
-                        self.stop_voice();
-                        self.prev_state = Some(Box::new(self.state.clone()));
-                        self.selected = 0;
-                        self.state = AppState::GameMenu;
-                        self.auto_play_timer = None;
-                        return;
-                    }
-                    _ => {}
+            AppState::InChoice { .. } => match key {
+                KeyCode::Char('h') | KeyCode::Char('H') => {
+                    self.prev_state = Some(Box::new(self.state.clone()));
+                    self.state = AppState::History;
+                    return;
                 }
-            }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    self.open_save_slot();
+                    return;
+                }
+                KeyCode::Char('l') | KeyCode::Char('L') => {
+                    self.open_load_slot();
+                    return;
+                }
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    self.stop_voice();
+                    self.prev_state = Some(Box::new(self.state.clone()));
+                    self.selected = 0;
+                    self.state = AppState::GameMenu;
+                    self.auto_play_timer = None;
+                    return;
+                }
+                _ => {}
+            },
             _ => {}
         }
-    
-        
-        if let AppState::InChoice { options, selected, .. } = &mut self.state {
+
+        if let AppState::InChoice {
+            options, selected, ..
+        } = &mut self.state
+        {
             let options_count = options.len();
             match key {
                 KeyCode::Up => {
-                    if *selected > 0 { *selected -= 1; }
+                    if *selected > 0 {
+                        *selected -= 1;
+                    }
                 }
                 KeyCode::Down => {
-                    if *selected < options_count - 1 { *selected += 1; }
+                    if *selected < options_count - 1 {
+                        *selected += 1;
+                    }
                 }
                 KeyCode::Enter => self.select_option(),
                 KeyCode::Esc | KeyCode::Char('q') => {
@@ -1000,7 +1075,7 @@ impl App {
             }
         }
     }
-    
+
     pub fn update_animation(&mut self) {
         if !self.config.text_animation {
             if self.display_text != self.target_text {
@@ -1008,11 +1083,11 @@ impl App {
             }
             return;
         }
-        
+
         if self.target_text.is_empty() {
             return;
         }
-        
+
         if self.display_text.len() < self.target_text.len() {
             let elapsed = self.last_char_time.elapsed();
             let speed = Duration::from_millis(self.config.text_speed);
@@ -1024,7 +1099,8 @@ impl App {
                         let next_char = self.target_text[current_len..].chars().next();
                         if let Some(c) = next_char {
                             let char_len = c.len_utf8();
-                            self.display_text.push_str(&self.target_text[current_len..current_len + char_len]);
+                            self.display_text
+                                .push_str(&self.target_text[current_len..current_len + char_len]);
                         } else {
                             break;
                         }

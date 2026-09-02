@@ -1,0 +1,5 @@
+[welcome]
+第一天
+系统:你好
+系统:这是第二个剧情文件  # 可以用 load:day1.ng:welcome 加载
+end

@@ -11,7 +11,7 @@ pub const DEFAULT_CONFIG: &str = r#"{
   "text_animation": true,
   "text_speed": 50,
   "background_color": "dark_purple",
-  "version": "0.9.0"
+  "version": "1.0.0"
 }"#;
 
 #[derive(Serialize, Deserialize, Clone)]

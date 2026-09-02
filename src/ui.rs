@@ -447,7 +447,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             }
         }
         crate::app::AppState::Input { ref prompt, .. } => {
-            let input_display = format!("{}: ", prompt);
+            let input_display = format!("{}: {}", prompt, app.input_buffer);
             let para = Paragraph::new(vec![
                 Line::from(Span::styled(input_display, Style::default().fg(Color::White))),
                 Line::from(Span::styled("(按回车确认，ESC取消)", Style::default().fg(Color::Gray))),

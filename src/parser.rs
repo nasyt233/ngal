@@ -1,3 +1,4 @@
+// src/parser.rs
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -23,10 +24,37 @@ pub enum DialogueCommand {
     End,
     Input { prompt: String, var_name: String },
     SetVar { name: String, value: String },
+    If { condition: String, target: String },
 }
 
 pub struct SceneData {
     pub commands: Vec<DialogueCommand>,
+}
+
+/// 转义文本中的特殊字符
+fn unescape_text(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                match next {
+                    ':' => { result.push(':'); chars.next(); }
+                    '"' => { result.push('"'); chars.next(); }
+                    '\'' => { result.push('\''); chars.next(); }
+                    '\\' => { result.push('\\'); chars.next(); }
+                    'n' => { result.push('\n'); chars.next(); }
+                    't' => { result.push('\t'); chars.next(); }
+                    _ => { result.push(c); } // 保留反斜杠
+                }
+            } else {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> {
@@ -35,7 +63,8 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
     let mut current_commands = Vec::new();
 
     for line in content.lines() {
-        let line = line.trim();
+        // 去除注释 (# 后面的内容)
+        let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
         }
@@ -104,6 +133,7 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
             current_commands.push(DialogueCommand::End);
         } else if line.starts_with("input:") {
             let rest = &line[6..];
+            // 从右边找最后一个冒号，分割提示语和变量名
             if let Some(last_colon) = rest.rfind(':') {
                 let prompt = rest[..last_colon].to_string();
                 let var_name = rest[last_colon+1..].to_string();
@@ -113,6 +143,13 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
                     prompt: "请输入".to_string(),
                     var_name: rest.to_string(),
                 });
+            }
+        } else if line.starts_with("if ") {
+            let rest = &line[3..]; // 去掉 "if "
+            if let Some(colon_pos) = rest.find(':') {
+                let condition = rest[..colon_pos].trim().to_string();
+                let target = rest[colon_pos+1..].trim().to_string();
+                current_commands.push(DialogueCommand::If { condition, target });
             }
         } else if line.contains('=') && !line.starts_with("//") {
             let parts: Vec<&str> = line.splitn(2, '=').collect();
@@ -141,7 +178,9 @@ fn parse_text_line(line: &str, commands: &mut Vec<DialogueCommand>) {
         3 => (Some(parts[0].to_string()), parts[1].to_string(), Some(parts[2].to_string())),
         _ => return,
     };
+    // 处理换行和转义
     let text = text.replace("\\n", "\n");
+    let text = unescape_text(&text);
     commands.push(DialogueCommand::Text { speaker, text, voice });
 }
 
@@ -170,7 +209,13 @@ pub fn load_game_config() -> Result<GameConfig> {
 }
 
 pub fn load_dialogue() -> Result<String> {
-    let path = Path::new("assets/dialog/dialogue.txt");
+    let path = Path::new("assets/dialog/dialogue.ng");
+    if !path.exists() {
+        let old_path = Path::new("assets/dialog/dialogue.txt");
+        if old_path.exists() {
+            return Ok(fs::read_to_string(old_path)?);
+        }
+    }
     let content = if path.exists() {
         fs::read_to_string(path)?
     } else {

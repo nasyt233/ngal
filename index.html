@@ -156,6 +156,12 @@
             color: #FFE9C7;
         }
 
+        .glass-card h3 {
+            font-size: 1.3rem;
+            margin: 1rem 0 0.8rem;
+            color: #FFE9C7;
+        }
+
         .two-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -244,12 +250,12 @@
 <div class="container">
     <div class="hero">
         <h1><i class="fas fa-terminal"></i> ngal · 终端视觉小说引擎</h1>
-        <p>纯终端｜全彩立绘｜语音+BGM｜变量分支｜亚克力沉浸</p>
+        <p>纯终端｜全彩立绘｜语音+BGM｜变量运算｜if 分支｜亚克力沉浸</p>
         <div class="badge-strip">
             <span class="badge"><i class="fab fa-rust"></i> Rust + Ratatui</span>
             <span class="badge"><i class="fas fa-image"></i> 立绘/背景叠加</span>
             <span class="badge"><i class="fas fa-head-side-headphones"></i> mpv 音频</span>
-            <span class="badge"><i class="fas fa-code-branch"></i> 脚本+变量</span>
+            <span class="badge"><i class="fas fa-code-branch"></i> 脚本+变量+if</span>
             <span class="badge"><i class="fas fa-palette"></i> 背景色/动画</span>
         </div>
     </div>
@@ -267,18 +273,21 @@
     <div id="intro" class="tab-content active">
         <div class="glass-card">
             <h2><i class="fas fa-crown"></i> 什么是 ngal？</h2>
-            <p>ngal 是一个纯终端环境下的跨平台 Galgame / 视觉小说引擎。使用 Rust 编写，提供精美的双边框 UI、角色立绘/背景分层、变量系统、分支选项、十槽位存档/读档、背景音乐及角色语音。开发者只需编写简单的文本脚本，即可在终端里享受属于自己的故事。</p>
+            <p>ngal 是一个纯终端环境下的跨平台 Galgame / 视觉小说引擎。使用 Rust 编写，提供精美的双边框 UI、角色立绘/背景分层、变量系统（支持运算与 if 条件分支）、十槽位存档/读档、背景音乐及角色语音。开发者只需编写简单的文本脚本（<code>.ng</code> 或 <code>.txt</code>），即可在终端里享受属于自己的故事。</p>
             <div class="two-grid" style="margin-top: 1rem;">
                 <div class="info-tile"><i class="fas fa-tachometer-alt"></i> <strong>轻量快速</strong><br>无需图形界面，SSH 或 Termux 上流畅运行</div>
-                <div class="info-tile"><i class="fas fa-pen-fancy"></i> <strong>脚本极简</strong><br>对话/图片/音乐/选项皆可一行命令搞定</div>
+                <div class="info-tile"><i class="fas fa-pen-fancy"></i> <strong>脚本极简</strong><br>对话/图片/音乐/选项/运算/判断皆可一行搞定</div>
                 <div class="info-tile"><i class="fas fa-music"></i> <strong>完全沉浸</strong><br>支持 mpv 背景音乐 + 角色独立语音</div>
-                <div class="info-tile"><i class="fas fa-history"></i> <strong>完善功能</strong><br>文字动画、历史回溯、自动播放、鼠标滚轮…</div>
+                <div class="info-tile"><i class="fas fa-history"></i> <strong>完善功能</strong><br>文字动画、历史回溯、自动播放、多档位</div>
             </div>
         </div>
         <div class="glass-card">
             <h2><i class="fas fa-download"></i> 安装 & 运行</h2>
             <p>依赖：Rust + Cargo + mpv (用于音频)</p>
-            <pre><code># 从 crates.io 安装
+            <pre><code># 一键安装脚本
+bash -c "$(curl -L https://raw.gitcode.com/nasyt/ngal/raw/main/install.sh)"
+
+# 或从 crates.io 安装
 cargo install ngal
 
 # 或从 GitHub 编译
@@ -303,10 +312,14 @@ ngal --version       # 显示版本</code></pre>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 立绘位置/缩放控制 (左/中/右 + 百分比)</div>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 背景与角色图片叠加，支持透明通道</div>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> BGM/语音独立音量，设置菜单实时调节</div>
-                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 变量系统 + 用户输入 (`input:提示语:变量`)</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 变量系统 + 四则运算 <code>+ - * /</code>（支持括号）</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> <code>if</code> 条件判断 <code>&gt; &lt; &gt;= &lt;= == !=</code></div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 用户输入 <code>input:提示语:变量</code></div>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 十槽位存档/读档 (带时间戳信息)</div>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 自动播放 / 逐字动画 / 动画速度调节</div>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 历史记录弹窗 (H键) + 鼠标滚轮支持</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 行内注释 <code>#</code> / <code>//</code> + 转义字符</div>
+                <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 外部脚本跳转 <code>load:文件.ng:场景</code></div>
                 <div><i class="fas fa-check-circle" style="color:#FFB05A;"></i> 完全开源 MIT 协议，可二次开发</div>
             </div>
         </div>
@@ -320,18 +333,18 @@ ngal --version       # 显示版本</code></pre>
 ├── assets/
 │   ├── game.json          # 标题、底部提示、入口文件配置
 │   ├── dialog/
-│   │   └── dialogue.txt   # ⭐主演剧情脚本 (核心)
+│   │   └── dialogue.ng    # ⭐主演剧情脚本 (核心, 支持 .ng/.txt)
 │   ├── portraits/         # 立绘 & 背景图片 .png/.jpg
 │   ├── music/             # 背景音乐 .mp3/.ogg
 │   └── voices/            # 角色语音 .mp3
 ├── save/                  # 存档 slot1~10.json (自动生成)
 └── ngal (可执行文件)</code></pre>
-            <p>📌 `game.json` 示例：<br><code>{"title": "终端奇缘", "footer": "按回车继续 | H历史", "index": "dialog/dialogue.txt"}</code></p>
+            <p>📌 `game.json` 示例：<br><code>{"title": "终端奇缘", "footer": "按回车继续 | H历史", "index": "dialog/dialogue.ng"}</code></p>
         </div>
         <div class="glass-card">
             <h2><i class="fas fa-play"></i> 首次试玩</h2>
-            <p>按上述结构放好脚本和资源，执行 `ngal` 即可。自带默认剧情演示（变量、分支、立绘切换）。</p>
-            <div class="info-tile"><i class="fas fa-lightbulb"></i> 小窍门：支持 `ngal ./你的项目` 切换游戏根目录，便于管理多项目。</div>
+            <p>按上述结构放好脚本和资源，执行 `ngal` 即可。自带默认剧情演示（变量、运算、if 分支、立绘切换）。</p>
+            <div class="info-tile"><i class="fas fa-lightbulb"></i> 小窍门：支持 `ngal ./你的项目` 切换游戏根目录，便于管理多项目；脚本支持 `.ng` 与 `.txt` 两种扩展名。</div>
         </div>
     </div>
 
@@ -339,7 +352,7 @@ ngal --version       # 显示版本</code></pre>
     <div id="script-guide" class="tab-content">
         <div class="glass-card">
             <h2><i class="fas fa-feather-alt"></i> 脚本编写 · 从零到完整演示</h2>
-            <p>剧情文件位于 <code>assets/dialog/dialogue.txt</code>，游戏从 <code>[welcome]</code> 场景启动。下方是一个包含音乐、立绘/背景、变量、选项、跳转等全部指令的示例：</p>
+            <p>剧情文件位于 <code>assets/dialog/dialogue.ng</code>（或 .txt），游戏从 <code>[welcome]</code> 场景启动。下方示例一包含音乐、立绘/背景、变量、选项、跳转等基础指令：</p>
             <div style="position: relative;">
                 <button class="copy-btn" onclick="copyCodeFromPre(this)">📋 复制示例脚本</button>
                 <pre id="demoScript"><code class="language-txt">[welcome]
@@ -380,17 +393,57 @@ bg:
 NAS油条:游戏结束
 end</code></pre>
             </div>
+            <p>示例二展示「变量运算 + if 条件判断 + 外部场景跳转」等进阶玩法：</p>
+            <div style="position: relative;">
+                <button class="copy-btn" onclick="copyCodeFromPre(this)">📋 复制进阶脚本</button>
+                <pre id="advScript"><code class="language-txt"># 变量运算 + if 分支示例
+[welcome]
+name = 嘉豪
+score = 10
+系统: {name}，欢迎来到 ngal！
+bg:bg.png
+music:bgm.mp3
+
+# 四则运算，支持括号
+a = 13
+b = 78
+c = a + b
+系统: 13 + 78 = {c}
+score = score + 5
+系统: 当前分数 {score}
+
+# if 条件判断，条件成立则跳转
+if score >= 10: good_end
+load:bad_end
+
+[good_end]
+系统: 分数达标，进入好结局！
+load:day1.ng:next   # 跳转外部脚本的场景
+load:exit
+
+[bad_end]
+系统: 分数不足，进入坏结局
+load:exit
+
+[exit]
+bg:
+music:
+end</code></pre>
+            </div>
             <hr>
             <h3><i class="fas fa-table-list"></i> 命令完全手册</h3>
             <div class="two-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px,1fr));">
                 <div><span class="cmd-badge">对话 + 语音</span><br><code>钟离:随便聊聊</code> / <code>派蒙:好吃:voice_paimon.mp3</code><br>旁白直接写文本即可。</div>
-                <div><span class="cmd-badge">变量 / 输入</span><br><code>input:输入名字:player</code><br><code>{player}你好</code>  /  <code>好感=3</code></div>
+                <div><span class="cmd-badge">变量赋值</span><br><code>name = 嘉豪</code> / <code>score = 10</code><br>支持字符串与数字。</div>
+                <div><span class="cmd-badge">变量运算</span><br><code>c = a + b</code> / <code>score = score * 2</code><br>支持 <code>+ - * /</code> 及括号。</div>
+                <div><span class="cmd-badge">if 条件判断</span><br><code>if score &gt;= 10: good_end</code><br>支持 <code>&gt; &lt; &gt;= &lt;= == !=</code>。</div>
+                <div><span class="cmd-badge">变量 / 输入</span><br><code>input:输入名字:player</code><br><code>{player}你好</code>  /  <code>{player}: 对话</code> 角色名也可用变量。</div>
                 <div><span class="cmd-badge">立绘 (sprite)</span><br><code>img:角色.png</code> (居中100%)<br><code>img:角色.png:1:70%</code> (左, 70%)<br><code>img:</code> 清除</div>
                 <div><span class="cmd-badge">背景图片</span><br><code>bg:校园.jpg</code> (拉伸填充)<br><code>bg:</code> 清除背景</div>
                 <div><span class="cmd-badge">音乐 & 音效</span><br><code>music:bgm.mp3</code> 播放 / <code>music:</code> 停止</div>
                 <div><span class="cmd-badge">选项分支</span><br><code>choose:去森林:forest|去城镇:town</code></div>
-                <div><span class="cmd-badge">流程控制</span><br><code>load:场景ID</code> / <code>end</code> 结束游戏<br>支持注释 <code>//</code> 或 <code>#</code></div>
-                <div><span class="cmd-badge">换行 & 特效</span><br>对话中 <code>\n</code> 强制换行。<br>文字动画、速度可在设置调节。</div>
+                <div><span class="cmd-badge">流程控制</span><br><code>load:场景ID</code> / <code>load:文件.ng:场景</code><br><code>end</code> 结束游戏</div>
+                <div><span class="cmd-badge">注释 & 转义</span><br>行内注释 <code>#</code> 或 <code>//</code><br>对话中转义 <code>\n</code> <code>\t</code> <code>\:</code> 等。</div>
             </div>
             <p>⚠️ 注意：场景名只使用字母/数字/下划线，文本编码UTF-8无BOM。所有图片/音乐/语音文件放在 assets 下的正确子目录。</p>
         </div>

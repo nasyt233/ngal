@@ -1,8 +1,8 @@
 {
-  "title": "原神 VS 鸣朝",
+  "title": "ngal TUI终端GalGame小说引擎",
   "footer": "按回车继续 | q 返回主菜单 | H 历史 | A 自动播放",
-  "index": "dialog/dialogue.txt",
+  "index": "dialog/dialogue.ng",
   "logo": "logo.png",
-  "bgm": "bg.mp3",
+  "bgm": "bgm.mp3",
   "menu_image": "logo.png"
 }
