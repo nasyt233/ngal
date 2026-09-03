@@ -15,6 +15,7 @@
 - 🎨 Adjustable background colors (dark purple / dark blue / dark green / dark red / gray / transparent)
 - 🧮 Variable arithmetic (`+ - * /`) and conditional `if` statements
 - 📝 In-line comments (`#`) and escape characters (`:` `"` `'` `\n` `\t`)
+- 🕹 The command execution $(uptime) can execute system commands to get announcements or things like that
 
 ## 🚀 Quick Start
 

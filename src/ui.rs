@@ -109,7 +109,6 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 height: 4,
             });
 
-            
             let menu_y = inner.y + y_offset + 4;
             let remaining_height = inner.height.saturating_sub(y_offset + 4);
             
@@ -126,7 +125,6 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 (Rect { x: inner.x, y: menu_y, width: inner.width, height: remaining_height }, None)
             };
 
-            
             let items: Vec<ListItem> = app
                 .menu_options
                 .iter()
@@ -158,14 +156,12 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             };
             frame.render_widget(list, list_area);
 
-            
             if let Some(img) = &app.menu_image {
                 if let Some(img_area) = image_area {
                     image::draw_portrait(frame, img_area, img, 2, 100);
                 }
             }
 
-            
             let version = format!("v{}", app.config.version);
             let version_para = Paragraph::new(version)
                 .style(Style::default().fg(Color::Rgb(150, 150, 150)).bg(bg_color))
@@ -295,7 +291,7 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             frame.render_widget(para, para_area);
         }
         crate::app::AppState::History => {
-            let items: Vec<ListItem> = app.history.iter().rev().map(|(speaker, text)| {
+            let items: Vec<ListItem> = app.history.iter().map(|(speaker, text)| {
                 let prefix = if let Some(s) = speaker {
                     format!("[{}] ", s)
                 } else {
@@ -304,17 +300,16 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 let display_text = format!("{}{}", prefix, text);
                 ListItem::new(display_text)
             }).collect();
-
             let mut list_state = ratatui::widgets::ListState::default();
             if let Some(last) = items.len().checked_sub(1) {
                 list_state.select(Some(last));
             }
-
+        
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("历史记录").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)))
                 .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
                 .style(Style::default().fg(Color::Rgb(255, 255, 255)).bg(bg_color));
-
+        
             let list_area = Rect {
                 x: inner.x + (inner.width.saturating_sub(60)) / 2,
                 y: inner.y + (inner.height.saturating_sub(20)) / 2,
@@ -464,7 +459,6 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             frame.render_widget(para, para_area);
         }
         crate::app::AppState::InDialogue { .. } => {
-            
             if let Some(bg_filename) = &app.current_background {
                 let bg_path = Path::new("assets/portraits").join(bg_filename);
                 if let Ok(bg_img) = image::load_image_rgba(&bg_path) {
@@ -472,7 +466,6 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 }
             }
 
-            
             if let Some(params) = &app.current_image_params {
                 if let Some(filename) = &params.filename {
                     let img = if let Some(cached) = app.image_cache.get(filename) {
@@ -527,6 +520,22 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                 height: list_height.min(inner.height),
             };
             frame.render_widget(list, list_area);
+        }
+        crate::app::AppState::EndOfFile => {
+            let para = Paragraph::new(vec![
+                Line::from(Span::styled("剧情结束", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("按任意键返回主菜单", Style::default().fg(Color::Rgb(200, 200, 200)))),
+            ])
+            .style(Style::default().bg(bg_color))
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL).title("结束").border_style(Style::default().fg(Color::Rgb(212, 112, 212))).style(Style::default().bg(bg_color)));
+            let para_area = Rect {
+                x: inner.x + (inner.width.saturating_sub(30)) / 2,
+                y: inner.y + (inner.height.saturating_sub(5)) / 2,
+                width: 30.min(inner.width),
+                height: 5.min(inner.height),
+            };
+            frame.render_widget(para, para_area);
         }
     }
 }
@@ -588,6 +597,11 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
         crate::app::AppState::InChoice { .. } => (
             app.current_speaker().unwrap_or_else(|| "系统".to_string()),
             "请选择一项：".to_string(),
+            app.status_message.as_deref(),
+        ),
+        crate::app::AppState::EndOfFile => (
+            "结束".to_string(),
+            "剧情已完结，按任意键返回".to_string(),
             app.status_message.as_deref(),
         ),
     };

@@ -1,22 +1,19 @@
-use ::image::ImageBuffer;
-use ::image::Rgba;
-use anyhow::Result;
-use crossterm::event::KeyCode;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Child;
 use std::time::{Duration, Instant};
+use anyhow::Result;
+use crossterm::event::KeyCode;
+use serde::{Deserialize, Serialize};
 
 use crate::audio;
 use crate::config::Config;
-use crate::image;
-use crate::parser::ImageParams;
-use crate::parser::{self, DialogueCommand};
-use crate::save::SaveData;
+use crate::parser::{self, DialogueCommand, ImageParams};
 use crate::variables::Variables;
+use crate::save::SaveData;
+use crate::image;
 
 const HISTORY_MAX: usize = 50;
 
@@ -29,10 +26,7 @@ pub enum AppState {
     GameMenu,
     SaveSlot,
     LoadSlot,
-    Input {
-        prompt: String,
-        var_name: String,
-    },
+    Input { prompt: String, var_name: String },
     InDialogue {
         scene_id: String,
         cmd_index: usize,
@@ -42,6 +36,7 @@ pub enum AppState {
         options: Vec<(String, String)>,
         selected: usize,
     },
+    EndOfFile,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -67,14 +62,13 @@ pub struct App {
     pub status_message: Option<String>,
     pub scenes: HashMap<String, parser::SceneData>,
     pub config: Config,
-    pub portraits: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
-    pub logo: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub portraits: HashMap<String, crate::image::RgbaImage>,
+    pub logo: Option<crate::image::RgbaImage>,
     pub should_quit: bool,
     pub bgm_process: Option<Child>,
     pub voice_process: Option<Child>,
     pub history: VecDeque<(Option<String>, String)>,
     pub auto_play_timer: Option<Instant>,
-    pub current_image: Option<String>,
     pub prev_state: Option<Box<AppState>>,
     pub title: String,
     pub footer: String,
@@ -82,11 +76,14 @@ pub struct App {
     pub input_buffer: String,
     pub current_background: Option<String>,
     pub current_image_params: Option<ImageParams>,
-    pub image_cache: HashMap<String, ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub image_cache: HashMap<String, crate::image::RgbaImage>,
+    pub menu_image: Option<crate::image::RgbaImage>,
     pub target_text: String,
     pub display_text: String,
     pub last_char_time: Instant,
-    pub menu_image: Option<ImageBuffer<Rgba<u8>, Vec<u8>>>,
+    pub current_file: Option<String>,
+    pub current_bgm: Option<String>,
+    pub file_scene_order: HashMap<String, Vec<String>>,
 }
 
 impl App {
@@ -95,12 +92,11 @@ impl App {
 
         let game_config = parser::load_game_config()?;
         let dialogue_content = parser::load_dialogue()?;
-        let scenes = parser::parse_dialogue_file(&dialogue_content)?;
+        let (scenes, order) = parser::parse_dialogue_file_with_order(&dialogue_content)?;
 
         let config = Config::load()?;
 
         let image_cache = HashMap::new();
-
         let portraits = HashMap::new();
 
         let logo = if let Some(logo_file) = &game_config.logo {
@@ -128,6 +124,9 @@ impl App {
             None
         };
 
+        let mut file_scene_order = HashMap::new();
+        file_scene_order.insert("dialogue.ng".to_string(), order);
+
         Ok(Self {
             state: AppState::Menu,
             menu_options: vec![
@@ -148,7 +147,6 @@ impl App {
             voice_process: None,
             history: VecDeque::with_capacity(HISTORY_MAX),
             auto_play_timer: None,
-            current_image: None,
             prev_state: None,
             title: game_config.title,
             footer: game_config.footer,
@@ -161,8 +159,12 @@ impl App {
             display_text: String::new(),
             last_char_time: Instant::now(),
             menu_image,
+            current_file: None,
+            current_bgm: None,
+            file_scene_order,
         })
     }
+
     fn ensure_directories() -> io::Result<()> {
         for dir in &[
             "assets",
@@ -179,12 +181,24 @@ impl App {
         Ok(())
     }
 
+    pub fn play_title_bgm(&mut self) {
+        let bgm_path = Path::new("assets/music/title.mp3");
+        if bgm_path.exists() {
+            self.stop_bgm();
+            if let Ok(child) = audio::play_audio(&bgm_path, true, self.config.bgm_volume) {
+                self.bgm_process = Some(child);
+                self.current_bgm = Some("title.mp3".to_string());
+            }
+        }
+    }
+
     pub fn play_bgm(&mut self, filename: &str) {
         self.stop_bgm();
         let music_path = Path::new("assets/music").join(filename);
         if music_path.exists() {
             if let Ok(child) = audio::play_audio(&music_path, true, self.config.bgm_volume) {
                 self.bgm_process = Some(child);
+                self.current_bgm = Some(filename.to_string());
             }
         }
     }
@@ -194,6 +208,7 @@ impl App {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.current_bgm = None;
     }
 
     pub fn play_voice_by_file(&mut self, speaker: &str, voice_filename: Option<&str>) {
@@ -227,7 +242,63 @@ impl App {
     }
 
     fn interpolate_text(&self, text: &str) -> String {
-        self.variables.interpolate(text)
+        let mut result = self.variables.interpolate(text);
+        let re = regex::Regex::new(r"\$\(([^)]+)\)").unwrap();
+        while let Some(caps) = re.captures(&result) {
+            let full_match = caps.get(0).unwrap().as_str();
+            let cmd = caps.get(1).unwrap().as_str().trim();
+            let output = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .output();
+            let replacement = match output {
+                Ok(out) => {
+                    if out.status.success() {
+                        String::from_utf8_lossy(&out.stdout).trim().to_string()
+                    } else {
+                        format!("[命令执行失败: {}]", cmd)
+                    }
+                }
+                Err(e) => format!("[命令错误: {}]", e),
+            };
+            result = result.replace(full_match, &replacement);
+        }
+        result
+    }
+
+    pub fn update_animation(&mut self) {
+        if !self.config.text_animation {
+            if self.display_text != self.target_text {
+                self.display_text = self.target_text.clone();
+            }
+            return;
+        }
+
+        if self.target_text.is_empty() {
+            return;
+        }
+
+        if self.display_text.len() < self.target_text.len() {
+            let elapsed = self.last_char_time.elapsed();
+            let speed = Duration::from_millis(self.config.text_speed);
+            if elapsed >= speed {
+                let add_count = (elapsed.as_millis() / speed.as_millis()).max(1) as usize;
+                for _ in 0..add_count {
+                    let current_len = self.display_text.len();
+                    if current_len < self.target_text.len() {
+                        let next_char = self.target_text[current_len..].chars().next();
+                        if let Some(c) = next_char {
+                            let char_len = c.len_utf8();
+                            self.display_text
+                                .push_str(&self.target_text[current_len..current_len + char_len]);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.last_char_time = Instant::now();
+            }
+        }
     }
 
     pub fn execute_command(&mut self, cmd: DialogueCommand) {
@@ -267,6 +338,7 @@ impl App {
                 self.current_image_params = Some(params);
             }
             DialogueCommand::Music { filename } => {
+                self.current_bgm = Some(filename.clone());
                 self.play_bgm(&filename);
             }
             DialogueCommand::MusicStop => {
@@ -282,20 +354,31 @@ impl App {
                 }
             }
             DialogueCommand::Load { file, target } => {
+                // 处理外部文件加载
                 if let Some(file_name) = file {
-                    if !self.scenes.contains_key(&target) {
-                        let _ = self.load_external_file(&file_name);
+                    // 过滤无效文件名
+                    if file_name == "null" || file_name.is_empty() {
+                        // 不改变 current_file
+                    } else {
+                        self.current_file = Some(file_name.clone());
+                        if !self.file_scene_order.contains_key(&file_name) {
+                            let _ = self.load_external_file(&file_name);
+                        }
+                        if !self.scenes.contains_key(&target) {
+                            let _ = self.load_external_file(&file_name);
+                        }
                     }
+                } else {
+                    // 同文件跳转：保留 current_file（不做任何修改）
+                    // 如果当前 current_file 为 None，则保持 None
                 }
+            
                 self.state = AppState::InDialogue {
                     scene_id: target,
                     cmd_index: 0,
                 };
-                if let AppState::InDialogue {
-                    scene_id,
-                    cmd_index,
-                } = &self.state
-                {
+                // 执行第一个命令
+                if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(first_cmd) = scene.commands.get(*cmd_index) {
                             self.execute_command(first_cmd.clone());
@@ -306,22 +389,23 @@ impl App {
             }
             DialogueCommand::End => {
                 self.state = AppState::Menu;
-                self.current_image = None;
+                self.current_image_params = None;
+                self.current_background = None;
+                self.current_file = None;
                 self.stop_bgm();
+                self.play_title_bgm();
             }
             DialogueCommand::Input { prompt, var_name } => {
                 self.prev_state = Some(Box::new(self.state.clone()));
                 self.state = AppState::Input { prompt, var_name };
             }
             DialogueCommand::SetVar { name, value } => {
-                // 尝试作为表达式求值
-                let final_value = if let Some(computed) = self.variables.eval_expr(&value) {
-                    computed
+                if let Some(computed) = self.variables.eval_expr(&value) {
+                    self.variables.set(&name, &computed);
                 } else {
-                    // 如果表达式无效，则直接使用原值（可能包含未替换的变量，作为字符串）
-                    self.interpolate_text(&value)
-                };
-                self.variables.set(&name, &final_value);
+                    let interpolated = self.variables.interpolate(&value);
+                    self.variables.set(&name, &interpolated);
+                }
                 self.advance_dialogue();
             }
             DialogueCommand::Background { filename } => {
@@ -329,12 +413,10 @@ impl App {
             }
             DialogueCommand::If { condition, target } => {
                 if self.variables.eval_condition(&condition) {
-                    // 条件成立，跳转到目标场景
                     self.state = AppState::InDialogue {
                         scene_id: target,
                         cmd_index: 0,
                     };
-                    // 执行目标场景的第一个命令（如果有）
                     if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
                         if let Some(scene) = self.scenes.get(scene_id) {
                             if let Some(first_cmd) = scene.commands.get(*cmd_index) {
@@ -373,8 +455,7 @@ impl App {
                                         self.execute_command(next_cmd.clone());
                                         continue;
                                     } else {
-                                        self.state = AppState::Menu;
-                                        return;
+                                        break;
                                     }
                                 }
                                 _ => break,
@@ -392,16 +473,16 @@ impl App {
     }
 
     pub fn start_game(&mut self) {
-        self.variables = Variables::new();
+        self.current_file = Some("dialogue.ng".to_string());
+        self.current_bgm = None;
         self.current_image_params = None;
         self.current_background = None;
         self.target_text = String::new();
         self.display_text = String::new();
         self.input_buffer = String::new();
         self.prev_state = None;
-        // 可选：清空历史
-        // self.history.clear();
-    
+        self.stop_bgm();
+
         let initial_scene = "welcome".to_string();
         if self.scenes.contains_key(&initial_scene) {
             let scene_id = initial_scene.clone();
@@ -425,11 +506,11 @@ impl App {
     pub fn load_external_file(&mut self, file_name: &str) -> Result<()> {
         let path = Path::new("assets/dialog").join(file_name);
         let content = fs::read_to_string(&path)?;
-        let new_scenes = parser::parse_dialogue_file(&content)?;
-
+        let (new_scenes, scene_order) = parser::parse_dialogue_file_with_order(&content)?;
         for (k, v) in new_scenes {
             self.scenes.insert(k, v);
         }
+        self.file_scene_order.insert(file_name.to_string(), scene_order);
         Ok(())
     }
 
@@ -439,19 +520,28 @@ impl App {
         } else {
             self.state.clone()
         };
-
+        let image_params = self.current_image_params.clone();
+        let background = self.current_background.clone();
+        let bgm = self.current_bgm.clone();
+        let current_file = self.current_file.clone().and_then(|f| {
+            if f == "null" || f.is_empty() { None } else { Some(f) }
+        });
+    
         if let Err(e) = SaveData::save(
             slot,
             &save_state,
             self.selected,
             &self.variables,
-            self.current_image.clone(),
+            current_file,
+            background,
+            bgm,
+            image_params,
         ) {
             self.status_message = Some(format!("存档失败: {}", e));
         } else {
             self.status_message = Some(format!("已存档到槽位 {}", slot));
         }
-
+    
         if let Some(prev) = self.prev_state.take() {
             self.state = *prev;
         } else {
@@ -465,16 +555,52 @@ impl App {
                 self.state = data.state;
                 self.selected = data.menu_selected;
                 self.variables.deserialize(data.variables);
-                self.current_image = data.current_image;
+                self.current_image_params = data.image_params;
+                self.current_background = data.background;
+    
+                
+                if let Some(file) = data.current_file {
+                    if file == "null" || file.is_empty() {
+                        self.current_file = None;
+                    } else {
+                        self.current_file = Some(file.clone());
+                        
+                        if !self.file_scene_order.contains_key(&file) {
+                            let _ = self.load_external_file(&file);
+                        }
+                        if let AppState::InDialogue { scene_id, .. } = &self.state {
+                            if !self.scenes.contains_key(scene_id) {
+                                let _ = self.load_external_file(&file);
+                            }
+                        }
+                    }
+                } else {
+                    self.current_file = None;
+                }
+    
+                
+                if self.current_file.is_none() {
+                    if let AppState::InDialogue { scene_id, .. } = &self.state {
+                        if self.scenes.contains_key(scene_id) {
+                            self.current_file = Some("dialogue.ng".to_string());
+                        }
+                    }
+                }
+    
+                
+                if let Some(bgm) = &data.bgm {
+                    self.current_bgm = Some(bgm.clone());
+                    self.play_bgm(bgm);
+                } else {
+                    self.current_bgm = None;
+                    self.stop_bgm();
+                }
+    
                 self.status_message = Some(format!("从槽位 {} 读档成功", slot));
-
                 self.prev_state = None;
-
-                if let AppState::InDialogue {
-                    scene_id,
-                    cmd_index,
-                } = &self.state
-                {
+    
+                
+                if let AppState::InDialogue { scene_id, cmd_index } = &self.state {
                     if let Some(scene) = self.scenes.get(scene_id) {
                         if let Some(cmd) = scene.commands.get(*cmd_index) {
                             self.execute_command(cmd.clone());
@@ -484,11 +610,11 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("读档失败: {}", e));
-
                 if let Some(prev) = self.prev_state.take() {
                     self.state = *prev;
                 } else {
                     self.state = AppState::Menu;
+                    self.play_title_bgm();
                 }
             }
         }
@@ -525,6 +651,8 @@ impl App {
 
         let next_cmd_index = current_cmd_index + 1;
         if let Some(next_cmd) = scene.commands.get(next_cmd_index) {
+            self.target_text = String::new();
+            self.display_text = String::new();
             self.state = AppState::InDialogue {
                 scene_id: current_scene_id,
                 cmd_index: next_cmd_index,
@@ -532,9 +660,46 @@ impl App {
             self.execute_command(next_cmd.clone());
             self.skip_non_interactive_commands();
         } else {
-            self.state = AppState::Menu;
-            self.current_image = None;
-            self.stop_bgm();
+            
+            let next_scene = if let Some(file) = &self.current_file {
+                if let Some(order) = self.file_scene_order.get(file) {
+                    if let Some(pos) = order.iter().position(|s| s == &current_scene_id) {
+                        if pos + 1 < order.len() {
+                            Some(order[pos + 1].clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(next_scene_id) = next_scene {
+                let next_scene_id_clone = next_scene_id.clone();
+                self.target_text = String::new();
+                self.display_text = String::new();
+                self.state = AppState::InDialogue {
+                    scene_id: next_scene_id_clone,
+                    cmd_index: 0,
+                };
+                if let Some(scene) = self.scenes.get(&next_scene_id) {
+                    if let Some(first_cmd) = scene.commands.first() {
+                        self.execute_command(first_cmd.clone());
+                    }
+                }
+                self.skip_non_interactive_commands();
+            } else {
+                
+                self.state = AppState::EndOfFile;
+                self.current_image_params = None;
+                self.current_background = None;
+                self.status_message = Some("剧情结束，按任意键返回主菜单".to_string());
+            }
         }
     }
 
@@ -549,6 +714,8 @@ impl App {
         };
 
         if let Some((_, next_scene)) = options.get(selected) {
+            self.target_text = String::new();
+            self.display_text = String::new();
             self.state = AppState::InDialogue {
                 scene_id: next_scene.clone(),
                 cmd_index: 0,
@@ -612,7 +779,6 @@ impl App {
             }
             SettingsAction::TextAnimationToggle => {
                 self.config.text_animation = !self.config.text_animation;
-
                 if !self.config.text_animation && self.display_text != self.target_text {
                     self.display_text = self.target_text.clone();
                 }
@@ -753,6 +919,7 @@ impl App {
                     self.state = *prev;
                 } else {
                     self.state = AppState::Menu;
+                    self.play_title_bgm(); 
                 }
             }
             KeyCode::Char('2') => {
@@ -764,6 +931,7 @@ impl App {
             KeyCode::Char('q') => {
                 self.state = AppState::Menu;
                 self.prev_state = None;
+                self.play_title_bgm(); 
             }
             KeyCode::Enter => match self.selected {
                 0 => {
@@ -771,6 +939,7 @@ impl App {
                         self.state = *prev;
                     } else {
                         self.state = AppState::Menu;
+                        self.play_title_bgm(); 
                     }
                 }
                 1 => self.state = AppState::SaveSlot,
@@ -778,27 +947,42 @@ impl App {
                 3 => {
                     self.state = AppState::Menu;
                     self.prev_state = None;
+                    self.play_title_bgm(); 
                 }
                 _ => {}
             },
             _ => {}
         }
     }
-
     pub fn handle_event(&mut self, key: KeyCode) {
         self.status_message = None;
 
         match self.state {
             AppState::History => {
+                
+                let items_len = self.history.len();
+                
                 match key {
-                    KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('H') => {
+                    KeyCode::Up => {
+                        
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        
+                        if self.selected < items_len.saturating_sub(1) {
+                            self.selected += 1;
+                        }
+                    }
+                    _ => {
+                        
                         if let Some(prev) = self.prev_state.take() {
                             self.state = *prev;
                         } else {
                             self.state = AppState::Menu;
                         }
                     }
-                    _ => {}
                 }
                 return;
             }
@@ -906,6 +1090,15 @@ impl App {
                         self.input_buffer.push(c);
                     }
                     _ => {}
+                }
+                return;
+            }
+            AppState::EndOfFile => {
+                match key {
+                    _ => {
+                        self.state = AppState::Menu;
+                        self.play_title_bgm();
+                    }
                 }
                 return;
             }
@@ -1072,41 +1265,6 @@ impl App {
                         _ => self.auto_play_timer = None,
                     }
                 }
-            }
-        }
-    }
-
-    pub fn update_animation(&mut self) {
-        if !self.config.text_animation {
-            if self.display_text != self.target_text {
-                self.display_text = self.target_text.clone();
-            }
-            return;
-        }
-
-        if self.target_text.is_empty() {
-            return;
-        }
-
-        if self.display_text.len() < self.target_text.len() {
-            let elapsed = self.last_char_time.elapsed();
-            let speed = Duration::from_millis(self.config.text_speed);
-            if elapsed >= speed {
-                let add_count = (elapsed.as_millis() / speed.as_millis()).max(1) as usize;
-                for _ in 0..add_count {
-                    let current_len = self.display_text.len();
-                    if current_len < self.target_text.len() {
-                        let next_char = self.target_text[current_len..].chars().next();
-                        if let Some(c) = next_char {
-                            let char_len = c.len_utf8();
-                            self.display_text
-                                .push_str(&self.target_text[current_len..current_len + char_len]);
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                self.last_char_time = Instant::now();
             }
         }
     }

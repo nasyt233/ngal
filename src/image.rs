@@ -1,3 +1,4 @@
+// src/image.rs
 use anyhow::{anyhow, Result};
 use image::{ImageBuffer, ImageReader, Rgba};
 use ratatui::{
@@ -7,8 +8,11 @@ use ratatui::{
 };
 use std::path::Path;
 
-/// 加载图片为 RGBA8 格式（用于字符绘制）
-pub fn load_image_rgba(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+// 定义常用图片类型别名
+pub type RgbaImage = ImageBuffer<Rgba<u8>, Vec<u8>>;
+
+/// 加载图片为 RgbaImage 格式
+pub fn load_image_rgba(path: &Path) -> Result<RgbaImage> {
     let img = ImageReader::open(path)
         .map_err(|e| anyhow!("无法打开图片 {}: {}", path.display(), e))?
         .with_guessed_format()
@@ -22,7 +26,7 @@ pub fn load_image_rgba(path: &Path) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
 pub fn draw_background(
     frame: &mut Frame,
     area: Rect,
-    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    img: &RgbaImage,
 ) {
     let area_w = area.width as usize;
     let area_h = area.height as usize;
@@ -65,7 +69,7 @@ pub fn draw_background(
 pub fn draw_portrait(
     frame: &mut Frame,
     area: Rect,
-    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    img: &RgbaImage,
     position: usize,
     _scale_percent: u8,
 ) {
@@ -137,7 +141,7 @@ pub fn draw_portrait(
 pub fn draw_portrait_adaptive(
     frame: &mut Frame,
     area: Rect,
-    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    img: &RgbaImage,
 ) {
     draw_portrait(frame, area, img, 2, 100);
 }

@@ -1,4 +1,4 @@
-// src/variables.rs
+
 use std::collections::HashMap;
 use regex::Regex;
 
@@ -46,7 +46,6 @@ impl Variables {
     pub fn eval_expr(&self, expr: &str) -> Option<String> {
         let mut replaced = expr.to_string();
         
-        // 1. 先替换 {变量} 格式
         for (key, _) in self.map.iter() {
             let val = self.get_number(key);
             let val_str = if val.fract() == 0.0 {
@@ -56,11 +55,10 @@ impl Variables {
             };
             replaced = replaced.replace(&format!("{{{}}}", key), &val_str);
         }
-
-        // 2. 替换直接变量名（不带花括号）
-        // 按变量名长度从长到短排序，避免短变量名误替换长变量名的一部分
+        
+        
         let mut keys: Vec<&String> = self.map.keys().collect();
-        keys.sort_by_key(|k| -(k.len() as isize)); // 从长到短
+        keys.sort_by_key(|k| -(k.len() as isize));
         for key in keys {
             let val = self.get_number(key);
             let val_str = if val.fract() == 0.0 {
@@ -68,9 +66,10 @@ impl Variables {
             } else {
                 format!("{}", val)
             };
-            // 使用正则 \b 匹配独立单词（只对 ASCII 有效，但变量名通常为 ASCII）
-            // 如果变量名包含中文，可能无法用 \b，但我们可以用简单方法：
-            // 替换前后不是字母数字或下划线的 key
+            
+            
+            
+            
             let mut new_replaced = String::new();
             let chars: Vec<char> = replaced.chars().collect();
             let mut i = 0;
@@ -78,7 +77,7 @@ impl Variables {
                 if i + key.len() <= chars.len() {
                     let substr: String = chars[i..i+key.len()].iter().collect();
                     if substr == *key {
-                        // 检查前后边界
+                        
                         let prev_ok = i == 0 || !chars[i-1].is_alphanumeric() && chars[i-1] != '_';
                         let next_ok = i + key.len() == chars.len() || 
                                       !chars[i+key.len()].is_alphanumeric() && chars[i+key.len()] != '_';
@@ -94,8 +93,7 @@ impl Variables {
             }
             replaced = new_replaced;
         }
-
-        // 3. 尝试计算表达式
+        
         eval_math_expression(&replaced).map(|v| {
             if v.fract() == 0.0 {
                 format!("{:.0}", v)
@@ -104,18 +102,18 @@ impl Variables {
             }
         })
     }
-
+    
     /// 条件判断，支持 > < >= <= == !=
     /// 变量名可以直接写（不带花括号），也支持 {变量} 语法
     pub fn eval_condition(&self, cond: &str) -> bool {
-        // 先替换所有变量（包括 {变量} 和直接变量名）
-        // 我们借用 eval_expr 来分别计算左右表达式
+        
+        
         let ops = vec![">=", "<=", "==", "!=", ">", "<"];
         for op in ops {
             if let Some(pos) = cond.find(op) {
                 let left = cond[..pos].trim();
                 let right = cond[pos+op.len()..].trim();
-                // 分别计算左右表达式的值（如果是数字）
+                
                 if let (Some(l_str), Some(r_str)) = (self.eval_expr(left), self.eval_expr(right)) {
                     if let (Ok(l), Ok(r)) = (l_str.parse::<f64>(), r_str.parse::<f64>()) {
                         return match op {
@@ -128,11 +126,11 @@ impl Variables {
                             _ => false,
                         };
                     } else {
-                        // 字符串比较
+                        
                         return match op {
                             "==" => l_str == r_str,
                             "!=" => l_str != r_str,
-                            _ => false, // 字符串不支持 > <
+                            _ => false, 
                         };
                     }
                 }

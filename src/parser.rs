@@ -1,11 +1,11 @@
-// src/parser.rs
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use anyhow::Result;
 use crate::defaults;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageParams {
     pub filename: Option<String>,
     pub position: usize,
@@ -31,39 +31,19 @@ pub struct SceneData {
     pub commands: Vec<DialogueCommand>,
 }
 
-/// 转义文本中的特殊字符
-fn unescape_text(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            if let Some(&next) = chars.peek() {
-                match next {
-                    ':' => { result.push(':'); chars.next(); }
-                    '"' => { result.push('"'); chars.next(); }
-                    '\'' => { result.push('\''); chars.next(); }
-                    '\\' => { result.push('\\'); chars.next(); }
-                    'n' => { result.push('\n'); chars.next(); }
-                    't' => { result.push('\t'); chars.next(); }
-                    _ => { result.push(c); } // 保留反斜杠
-                }
-            } else {
-                result.push(c);
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
+pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> {
+    let (scenes, _) = parse_dialogue_file_with_order(content)?;
+    Ok(scenes)
 }
 
-pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> {
+/// 解析剧情文件，返回 (场景字典, 场景顺序列表)
+pub fn parse_dialogue_file_with_order(content: &str) -> Result<(HashMap<String, SceneData>, Vec<String>)> {
     let mut scenes = HashMap::new();
+    let mut scene_order = Vec::new();
     let mut current_scene = String::new();
     let mut current_commands = Vec::new();
 
     for line in content.lines() {
-        // 去除注释 (# 后面的内容)
         let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
@@ -74,6 +54,7 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
                 current_commands = Vec::new();
             }
             current_scene = line[1..line.len()-1].to_string();
+            scene_order.push(current_scene.clone());
         } else if line.starts_with("img:") {
             let rest = &line[4..];
             let parts: Vec<&str> = rest.split(':').collect();
@@ -133,7 +114,6 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
             current_commands.push(DialogueCommand::End);
         } else if line.starts_with("input:") {
             let rest = &line[6..];
-            // 从右边找最后一个冒号，分割提示语和变量名
             if let Some(last_colon) = rest.rfind(':') {
                 let prompt = rest[..last_colon].to_string();
                 let var_name = rest[last_colon+1..].to_string();
@@ -145,7 +125,7 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
                 });
             }
         } else if line.starts_with("if ") {
-            let rest = &line[3..]; // 去掉 "if "
+            let rest = &line[3..];
             if let Some(colon_pos) = rest.find(':') {
                 let condition = rest[..colon_pos].trim().to_string();
                 let target = rest[colon_pos+1..].trim().to_string();
@@ -167,7 +147,7 @@ pub fn parse_dialogue_file(content: &str) -> Result<HashMap<String, SceneData>> 
     if !current_scene.is_empty() {
         scenes.insert(current_scene, SceneData { commands: current_commands });
     }
-    Ok(scenes)
+    Ok((scenes, scene_order))
 }
 
 fn parse_text_line(line: &str, commands: &mut Vec<DialogueCommand>) {
@@ -178,9 +158,7 @@ fn parse_text_line(line: &str, commands: &mut Vec<DialogueCommand>) {
         3 => (Some(parts[0].to_string()), parts[1].to_string(), Some(parts[2].to_string())),
         _ => return,
     };
-    // 处理换行和转义
     let text = text.replace("\\n", "\n");
-    let text = unescape_text(&text);
     commands.push(DialogueCommand::Text { speaker, text, voice });
 }
 
