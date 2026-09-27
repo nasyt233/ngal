@@ -1,6 +1,8 @@
 # 🎮 ngal - 终端视觉小说引擎
 
-![演示](image/ys.png)
+游戏界面
+![演示](image/ys.jpg)
+编辑器界面
 ![编辑器](image/edit.jpg)
 
 [English README](README_en.md)

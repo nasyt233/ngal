@@ -1,7 +1,9 @@
 # 🎮 ngal - Terminal Visual Novel Engine
 
-![演示](image/ys.png)
-![编辑器](image/edit.jpg)
+Game Interface
+![Demo](image/ys.jpg)
+Editor Interface
+![Editor](image/edit.jpg)
 
 [简体中文 README](README.md)
 ![web introduce](index.html)
