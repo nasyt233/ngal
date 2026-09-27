@@ -1,6 +1,10 @@
 # 🎮 ngal - 终端视觉小说引擎
 
+![演示](image/ys.png)
+![编辑器](image/edit.jpg)
+
 [English README](README_en.md)
+
 ![网页介绍](index.html)
 
 > 一个用 Rust 编写的终端 Galgame 引擎，让你在命令行里享受视觉小说。
@@ -43,6 +47,8 @@ cargo install ngal
 ngal              # 运行当前目录下的游戏
 ngal mygame       # 运行指定目录下的游戏
 ngal --version    # 查看版本信息
+ngal build        # 打包游戏
+ngal edit         # 内容编辑器
 ```
 
 ### 目录结构
@@ -51,7 +57,7 @@ ngal --version    # 查看版本信息
 assets/
 ├── game.json       # 游戏配置文件
 ├── dialog/
-│   ├── dialogue.ng # 脚本文件（支持 .ng / .txt）
+│   ├── dialogue.ng # 脚本文件
 │   └── xxx.ng      # 其他脚本文件
 ├── portraits/      # 角色立绘
 ├── music/          # 背景音乐
@@ -65,68 +71,71 @@ save/               # 存档目录
 
 ### 基础语法
 ```ng
-# ngal 示例教程脚本    # # 表示注释
+# ngal 示例教学默认剧情    # 符号为注释
 
-[welcome]               # [welcome] 为入口节点
-第一章                # 无角色名的纯文本
-load:index              # 跳转到指定节点；支持外部文件：load:day1.ng:welcome
+[welcome]               # [welcome]为剧情入口
+第一章                   # 没角色名直接显示文字
+load:index              # 加载其他剧情，支持同目录下其他剧情文件(load:day1.ng:welcome)
 
-[index]                 # 子场景节点
-name = 嘉豪            # 变量赋值
-bg:bg.png               # 加载背景图片
-music:bgm.mp3           # 播放背景音乐
-img:logo.png:2:50%      # 加载立绘（1=左，2=中，3=右；50% 为缩放比例）
-系统: 欢迎使用 ngal 引擎！   # 带角色名的对话
-img:                     # 留空则清除立绘（bg/music 同理）
-系统: 默认名字为 {name}       # {var} 插入变量值，运算时可不加大括号
-input:请输入你的名字:name     # 读取用户输入到变量
-{name}: 我的名字是 {name}!    # 变量也可作为角色名
-
-# 变量运算
-a = 13
-系统: a = {a}
+[index]                 # 子剧情
+name = 嘉豪              # 变量设置
+bg:bg.png               # 加载背景图
+music:bg.mp3            # 加载音乐
+img:logo.png:2:50%      # 加载立绘(位置有123可选分别对应左中右,50%指的比例大小)
+系统:欢迎来到 ngal 引擎！   # 带角色名显示文字
+系统:你好用户:hello.mp3    # 带语音播放显示文字
+系统:当前时间 $(date)      # 命令执行功能
+系统:当前用户 $(whoami)
+系统:当前目录 $(pwd)
+系统:来自于$(curl -s myip.ipip.net | grep -oE " 来自于.*" | sed s/来自于//)
+img:                     # 再次输入则关闭立绘(音乐,背景同理)
+系统:当前默认名字：{name}   # {}调用变量，在变量运算中可以不用{}
+input:请输入你的名字:name  # 读取用户输入变量
+{name}:我的名字是：{name}！# 变量也可以用于当角色名
+变量运算
+a = q13
+系统:a的值为{a}
 b = 78
-系统: b = {b}
-c = a + b               # 支持 + - * /
-系统: 加法结果为 {c}
-
-系统: 该做选择啦
+系统:b的值为{b}
+c = a + b               # 变量运算支持(+, -, *, /)
+系统:相加计算结果为 {c}
+系统:下面是选项选择
 score = 10
-系统: 当前分数 {score}
-choose:接受冒险(+8分):accept|拒绝冒险(-5分):refuse
+系统:当前分数为{score}     # 分支选择
+choose:接受冒险(分数+8):accept|拒绝冒险(分数-5):refuse
 
 [accept]
-系统: 你接受了冒险！
+系统:你接受了冒险！
 score = score + 8
-系统: 当前分数 {score}
+系统:当前分数 {score}
 load:jx
 
 [refuse]
-系统: 你拒绝了冒险！
+系统:你拒绝了冒险！
 score = score - 5
-系统: 当前分数 {score}
+系统:当前分数 {score}
 load:jx
 
 [jx]
-系统: if 条件判断演示
-if score >= 10: good_end # 条件满足则跳转
-load:bad_end # 条件不满足则继续往下执行
+系统:if判断功能
+if score >= 10: good_end # 满足要求跳转
+load:bad_end # 不满足，继续执行
 
 [good_end]
-系统: 分数大于等于 10
-系统: 🤓 完美结局！分数 {score}
+系统:当前分数大于或等于10
+系统:🤓 完美结局！得分 {score}
 load:exit
 
 [bad_end]
-系统: 分数小于 10
-系统: 😭 坏结局。分数 {score}
+系统:分数小于10
+系统:😭 遗憾结局。得分 {score}
 load:exit
 
 [exit]
-系统: 游戏结束
-bg:    # 清除背景
-music: # 停止音乐
-end    # 退出游戏
+系统:游戏结束
+bg:    # 关闭背景
+music: # 停止播放音乐
+end
 ```
 
 ### 指令参考
@@ -167,6 +176,9 @@ end    # 退出游戏
 | 3 / 4 | 调整文字速度 |
 | B | 循环切换背景色 |
 | q | 返回菜单 / 退出 |
+
+编辑器按键
+在编辑器界面输入h查看
 
 ## 📜 依赖
 - **mpv** — 播放音频必需

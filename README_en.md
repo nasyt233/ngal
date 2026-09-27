@@ -1,5 +1,8 @@
 # 🎮 ngal - Terminal Visual Novel Engine
 
+![演示](image/ys.png)
+![编辑器](image/edit.jpg)
+
 [简体中文 README](README.md)
 ![web introduce](index.html)
 
@@ -40,9 +43,11 @@ cargo install ngal
 
 ### Run
 ```bash
-ngal              # Run game in current directory
-ngal mygame       # Run game from specified directory
-ngal --version    # Show version info
+ngal              # Run the game in the current directory
+ngal mygame       # Run the game in the specified directory
+ngal --version    # View version information
+ngal build        # Package the game
+ngal edit         # Content editor
 ```
 
 ### Directory Structure
@@ -71,16 +76,21 @@ The main script file is `assets/dialog/dialogue.ng`. Both `.ng` and `.txt` file 
 Chapter 1               # Plain text without speaker name
 load:index              # Jump to another scene; supports external file: load:day1.ng:welcome
 
-[index]                 # Sub-scene
-name = Jiahao           # Variable assignment
+[index]                 # Subplot
+name = Jiahao           # Variable setting
 bg:bg.png               # Load background image
-music:bgm.mp3           # Play background music
-img:logo.png:2:50%      # Load sprite (1=left,2=center,3=right; 50% = scale)
-System: Welcome to ngal engine!   # Dialogue with speaker name
-img:                     # Empty to clear sprite (works for bg/music too)
-System: Default name: {name}       # {var} interpolate variable; braces not needed in arithmetic
-input:Please enter your name:name  # Read user input into variable
-{name}: My name is {name}!         # Variable can also be used as speaker name
+music:bg.mp3            # Load music
+img:logo.png:2:50%      # Load character image (Position options are 1,2,3 corresponding to left, center, right, 50% refers to scale)
+System: Welcome to the ngal engine!     # Display text with character name
+System: Hello user:hello.mp3            # Display text with voice playback
+System: Current time $(date)            # Command execution function
+System: Current user $(whoami)
+System: Current directory $(pwd)
+System: From $(curl -s myip.ipip.net | grep -oE " From.*" | sed s/From//)
+img:                                    # Enter again to close the character image (same for music and background)
+System: Current default name: {name}    # {} calls a variable; in variable operations, {} is optional
+input: Please enter your name:name      # Read user input into variable
+{name}: My name is: {name}!             # Variables can also be used as character names
 
 # Variable arithmetic
 a = 13
@@ -167,6 +177,9 @@ end    # Exit game
 | 3 / 4 | Adjust text speed |
 | B | Cycle background color |
 | q | Return to menu / quit |
+
+Editor keys
+Type h in the editor interface to view
 
 ## 📜 Dependencies
 - **mpv** — Required for audio playback

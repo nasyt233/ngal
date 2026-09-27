@@ -4,14 +4,14 @@ use std::io;
 use std::path::Path;
 
 pub const DEFAULT_CONFIG: &str = r#"{
-  "bgm_volume": 60,
+  "bgm_volume": 70,
   "voice_volume": 80,
   "auto_play": false,
   "auto_play_speed": 3.0,
   "text_animation": true,
   "text_speed": 50,
   "background_color": "dark_purple",
-  "version": "1.0.0"
+  "version": "1.0.2"
 }"#;
 
 #[derive(Serialize, Deserialize, Clone)]

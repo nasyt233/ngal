@@ -8,3 +8,6 @@ pub mod variables;
 pub mod save;
 pub mod app;
 pub mod ui;
+pub mod commands;
+pub mod runner;
+pub mod editor;

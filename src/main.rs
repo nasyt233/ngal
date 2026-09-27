@@ -1,111 +1,57 @@
+// src/main.rs
 use anyhow::Result;
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
-use std::io::stdout;
-use std::panic;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
 
-use ngal::app::App;
-use ngal::args::Args;
-use ngal::ui;
+use ngal::{args, commands, editor, runner};
 
 fn main() -> Result<()> {
-    let args = Args::parse();
-    if args.help {
-        Args::print_help();
-        return Ok(());
-    }
-    if args.version {
-        Args::print_version();
-        return Ok(());
-    }
+    let parsed_args = args::Args::parse();
 
-    if args.game_dir != std::path::PathBuf::from(".") {
-        std::env::set_current_dir(&args.game_dir)?;
-    }
-
-    let original_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic_info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture);
-        original_hook(panic_info);
-    }));
-
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let mut app = App::new()?;
-
-    loop {
-        
-        app.update_animation();
-
-        terminal.draw(|f| ui::draw(f, &mut app))?;
-
-        
-        app.update_auto_play();
-
-        
-        if event::poll(Duration::from_millis(16))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Char('q') => {
-                            if let ngal::app::AppState::Menu = app.state {
-                                break;
-                            } else {
-                                app.handle_event(key.code);
-                            }
-                        }
-                        _ => app.handle_event(key.code),
+    match parsed_args.command {
+        args::Command::Help => {
+            args::Args::print_help();
+            Ok(())
+        }
+        args::Command::Version => {
+            args::Args::print_version();
+            Ok(())
+        }
+        args::Command::New(dir) => commands::new_project(dir),
+        args::Command::Status(dir) => commands::show_status(dir),
+        args::Command::Build { dir, output } => commands::build_project(dir, output),
+        args::Command::RunPacked(file) => commands::run_packed(&file),
+        args::Command::Edit(path) => {
+            let file_path = match path {
+                Some(p) => {
+                    if p.is_dir() {
+                        p.join("assets/dialog/dialogue.ng")
+                    } else {
+                        p
                     }
                 }
-                Event::Mouse(mouse) => {
-                    match mouse.kind {
-                        MouseEventKind::ScrollUp => {
-                            if let ngal::app::AppState::Menu = app.state {
-                                if app.selected > 0 {
-                                    app.selected -= 1;
-                                }
-                            }
-                        }
-                        MouseEventKind::ScrollDown => {
-                            if let ngal::app::AppState::Menu = app.state {
-                                if app.selected < app.menu_options.len() - 1 {
-                                    app.selected += 1;
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
+                None => PathBuf::from("assets/dialog/dialogue.ng"),
+            };
+            let mut ed = editor::Editor::new(file_path)?;
+            ed.run()
+        }
+        args::Command::Run(game_dir) => {
+            if !game_dir.exists() {
+                eprintln!("目录不存在: {}", game_dir.display());
+                return Ok(());
             }
-        }
-
-        if app.should_quit {
-            break;
+            let check_dir = if game_dir == Path::new(".") {
+                std::env::current_dir()?
+            } else {
+                game_dir.clone()
+            };
+            if !check_dir.join("assets/game.json").exists() {
+                eprintln!("当前目录没有游戏文件，输入 ngal help 查看帮助");
+                return Ok(());
+            }
+            if game_dir != Path::new(".") {
+                std::env::set_current_dir(&game_dir)?;
+            }
+            runner::run_game()
         }
     }
-
-    app.stop_voice();
-    app.stop_bgm();
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    Ok(())
 }
