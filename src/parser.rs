@@ -1,8 +1,5 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 use anyhow::Result;
-use crate::defaults;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,35 +170,17 @@ pub struct GameConfig {
 }
 
 pub fn load_game_config() -> Result<GameConfig> {
-    let path = Path::new("assets/game.json");
-    let content = if path.exists() {
-        fs::read_to_string(path)?
-    } else {
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        fs::write(path, defaults::DEFAULT_GAME_CONFIG)?;
-        defaults::DEFAULT_GAME_CONFIG.to_string()
-    };
+    let content = crate::assets::read_text("assets/game.json")
+        .ok_or_else(|| anyhow::anyhow!("找不到 assets/game.json"))?;
     Ok(serde_json::from_str(&content)?)
 }
 
 pub fn load_dialogue() -> Result<String> {
-    let path = Path::new("assets/dialog/dialogue.ng");
-    if !path.exists() {
-        let old_path = Path::new("assets/dialog/dialogue.txt");
-        if old_path.exists() {
-            return Ok(fs::read_to_string(old_path)?);
-        }
+    if let Some(content) = crate::assets::read_text("assets/dialog/dialogue.ng") {
+        return Ok(content);
     }
-    let content = if path.exists() {
-        fs::read_to_string(path)?
-    } else {
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        fs::write(path, defaults::DEFAULT_DIALOGUE)?;
-        defaults::DEFAULT_DIALOGUE.to_string()
-    };
-    Ok(content)
+    if let Some(content) = crate::assets::read_text("assets/dialog/dialogue.txt") {
+        return Ok(content);
+    }
+    Err(anyhow::anyhow!("找不到剧情文件 assets/dialog/dialogue.ng"))
 }

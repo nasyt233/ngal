@@ -1,8 +1,7 @@
-// src/main.rs
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use ngal::{args, commands, editor, runner};
+use ngal::{args, commands, edit, runner};
 
 fn main() -> Result<()> {
     let parsed_args = args::Args::parse();
@@ -19,7 +18,8 @@ fn main() -> Result<()> {
         args::Command::New(dir) => commands::new_project(dir),
         args::Command::Status(dir) => commands::show_status(dir),
         args::Command::Build { dir, output } => commands::build_project(dir, output),
-        args::Command::RunPacked(file) => commands::run_packed(&file),
+        args::Command::RunPacked { file, debug } => commands::run_packed(&file, debug),
+        args::Command::Update => commands::update(),
         args::Command::Edit(path) => {
             let file_path = match path {
                 Some(p) => {
@@ -31,27 +31,36 @@ fn main() -> Result<()> {
                 }
                 None => PathBuf::from("assets/dialog/dialogue.ng"),
             };
-            let mut ed = editor::Editor::new(file_path)?;
+            let mut ed = edit::Editor::new(file_path)?;
             ed.run()
         }
         args::Command::Run(game_dir) => {
+            // 源码/解压模式：使用文件系统资源源
+            ngal::assets::set_filesystem();
+
             if !game_dir.exists() {
                 eprintln!("目录不存在: {}", game_dir.display());
                 return Ok(());
             }
+
             let check_dir = if game_dir == Path::new(".") {
                 std::env::current_dir()?
             } else {
                 game_dir.clone()
             };
+
             if !check_dir.join("assets/game.json").exists() {
                 eprintln!("当前目录没有游戏文件，输入 ngal help 查看帮助");
                 return Ok(());
             }
+
             if game_dir != Path::new(".") {
                 std::env::set_current_dir(&game_dir)?;
             }
-            runner::run_game()
+
+            let result = runner::run_game();
+            ngal::assets::cleanup_cache();
+            result
         }
     }
 }

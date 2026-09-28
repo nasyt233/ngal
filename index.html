@@ -298,7 +298,10 @@ cargo build --release
 # 运行游戏 (会在当前目录生成 assets/ 及默认配置)
 ngal
 ngal ./mygame        # 指定游戏目录
-ngal --version       # 显示版本</code></pre>
+ngal --version       # 显示版本
+ngal edit            # 剧情编辑器
+ngal build           # 打包游戏
+ngal status          # 检查统计</code></pre>
             <p>首次运行自动创建 `assets/` 相关资源文件夹，放入对应的立绘、音乐、语音即可开始创作。</p>
         </div>
     </div>
@@ -355,43 +358,72 @@ ngal --version       # 显示版本</code></pre>
             <p>剧情文件位于 <code>assets/dialog/dialogue.ng</code>（或 .txt），游戏从 <code>[welcome]</code> 场景启动。下方示例一包含音乐、立绘/背景、变量、选项、跳转等基础指令：</p>
             <div style="position: relative;">
                 <button class="copy-btn" onclick="copyCodeFromPre(this)">📋 复制示例脚本</button>
-                <pre id="demoScript"><code class="language-txt">[welcome]
-music:title.mp3
-img:NAS油条.png:3:50%
-NAS油条:本项目由Rust语言开发\n按回车键继续:nas_intro.mp3
-img:
-input:请输入你的名字:name
-NAS油条:好的，{name}，哪个游戏牛逼?:gamenb.mp3
-choose:原神牛逼:ysnb|鸣朝牛逼:mcnb|终末地牛逼:zmd
+                <pre id="demoScript"><code class="language-txt"># ngal 示例教学默认剧情    # 符号为注释
 
-[ysnb]
-bg:91.png
-img:鸣朝.png:3:35%
-鸣朝:鸣朝才牛逼😡:mcnb.mp3
-鸣朝:原神不牛逼🤓:ys_no_nb.mp3
-原神:原神才牛逼🤓👍:ysnb.mp3
-原神:鸣朝不牛逼😡:mc_no_nb.mp3
-load:ytnb
+[welcome]               # [welcome]为剧情入口
+第一章                   # 没角色名直接显示文字
+load:index              # 加载其他剧情，支持同目录下其他剧情文件(load:day1.ng:welcome)
 
-[mcnb]
-img:原神.png
-原神:原神才牛逼🤓👍:ysnb.mp3
-原神:鸣朝不牛逼😡:mc_no_nb.mp3
-鸣朝:鸣朝才牛逼😡:mcnb.mp3
-鸣朝:原神不牛逼🤓:ys_no_nb.mp3
-load:ytnb
+[index]                 # 子剧情
+name = 嘉豪              # 变量设置
+bg:bg.png               # 加载背景图
+music:bg.mp3            # 加载音乐
+img:logo.png:2:50%      # 加载立绘(位置有123可选分别对应左中右,50%指的比例大小)
+系统:欢迎来到 ngal 引擎！   # 带角色名显示文字
+系统:你好用户:hello.mp3    # 带语音播放显示文字
+系统:当前时间 $(date)      # 命令执行功能
+系统:当前用户 $(whoami)
+系统:当前目录 $(pwd)
+系统:来自于$(curl -s myip.ipip.net | grep -oE " 来自于.*" | sed s/来自于//)
+img:                     # 再次输入则关闭立绘(音乐,背景同理)
+系统:当前默认名字：{name}   # {}调用变量，在变量运算中可以不用{}
+input:请输入你的名字:name  # 读取用户输入变量
+{name}:我的名字是：{name}！# 变量也可以用于当角色名
+变量运算
+a = q13
+系统:a的值为{a}
+b = 78
+系统:b的值为{b}
+c = a + b               # 变量运算支持(+, -, *, /)
+系统:相加计算结果为 {c}
+系统:下面是选项选择
+score = 10
+系统:当前分数为{score}     # 分支选择
+choose:接受冒险(分数+8):accept|拒绝冒险(分数-5):refuse
 
-[zmd]
-img:终末地.png
-终末地:我最牛逼
+[accept]
+系统:你接受了冒险！
+score = score + 8
+系统:当前分数 {score}
+load:jx
+
+[refuse]
+系统:你拒绝了冒险！
+score = score - 5
+系统:当前分数 {score}
+load:jx
+
+[jx]
+系统:if判断功能
+if score >= 10: good_end # 满足要求跳转
+load:bad_end # 不满足，继续执行
+
+[good_end]
 end
+系统:当前分数大于或等于10
+系统:🤓 完美结局！得分 {score}
+load:exit
 
-[ytnb]
-img:我.png
-{name}:😋他们产的片才牛逼😋:ysmcnb.mp3
-bg:
-NAS油条:游戏结束
-end</code></pre>
+[bad_end]
+系统:分数小于10
+系统:😭 遗憾结局。得分 {score}
+load:exit
+
+[exit]
+系统:游戏结束
+bg:    # 关闭背景
+music: # 停止播放音乐
+end    # 结束游戏</code></pre>
             </div>
             <p>示例二展示「变量运算 + if 条件判断 + 外部场景跳转」等进阶玩法：</p>
             <div style="position: relative;">

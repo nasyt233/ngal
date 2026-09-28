@@ -1,4 +1,6 @@
+pub mod assets;
 pub mod args;
+pub mod crypto;
 pub mod defaults;
 pub mod parser;
 pub mod config;
@@ -10,4 +12,4 @@ pub mod app;
 pub mod ui;
 pub mod commands;
 pub mod runner;
-pub mod editor;
+pub mod edit;

@@ -49,6 +49,7 @@ if score >= 10: good_end # 满足要求跳转
 load:bad_end # 不满足，继续执行
 
 [good_end]
+end
 系统:当前分数大于或等于10
 系统:🤓 完美结局！得分 {score}
 load:exit
@@ -62,4 +63,4 @@ load:exit
 系统:游戏结束
 bg:    # 关闭背景
 music: # 停止播放音乐
-end
+end    # 结束游戏

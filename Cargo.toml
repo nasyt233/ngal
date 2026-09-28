@@ -1,14 +1,14 @@
 [package]
 name = "ngal"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "一个用 Rust 编写的基于终端的galgame引擎，支持图片显示存档读取。"
 readme = "README_en.md"
 homepage = "https://nasyt.hoha.top"
 repository = "https://github.com/nasyt233/ngal"
 license = "MIT OR Apache-2.0"
-maintainer = ["NAS油条", "nasyt"]
-keywords = ["ngal", "nasyt", "galgame", "game", ]
+maintainer = ["nasyt"]
+keywords = ["ngal", "nasyt", "galgame", "game", "game-engines", ]
 
 [dependencies]
 ratatui = "0.26"
@@ -20,7 +20,16 @@ anyhow = "1.0"
 regex = "1"
 chrono = "0.4"
 zip = "0.6"
+chacha20poly1305 = "0.10"
+
 
 [[bin]]
 name = "ngal"
 path = "src/main.rs"
+
+[profile.release]
+lto = true
+strip = true
+opt-level = "z" 
+codegen-units = 1
+panic = 'abort'

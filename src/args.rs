@@ -1,3 +1,4 @@
+// src/args.rs
 use std::env;
 use std::path::PathBuf;
 
@@ -6,8 +7,9 @@ pub enum Command {
     New(Option<PathBuf>),
     Status(Option<PathBuf>),
     Build { dir: PathBuf, output: Option<PathBuf> },
-    RunPacked(PathBuf),
+    RunPacked { file: PathBuf, debug: bool },
     Edit(Option<PathBuf>),
+    Update,
     Help,
     Version,
 }
@@ -29,19 +31,11 @@ impl Args {
             "-h" | "--help" => Args { command: Command::Help },
             "-V" | "--version" => Args { command: Command::Version },
             "new" => {
-                let dir = if args.len() > 2 {
-                    Some(expand_path(&args[2]))
-                } else {
-                    None
-                };
+                let dir = if args.len() > 2 { Some(expand_path(&args[2])) } else { None };
                 Args { command: Command::New(dir) }
             }
             "status" => {
-                let dir = if args.len() > 2 {
-                    Some(expand_path(&args[2]))
-                } else {
-                    None
-                };
+                let dir = if args.len() > 2 { Some(expand_path(&args[2])) } else { None };
                 Args { command: Command::Status(dir) }
             }
             "build" => {
@@ -63,17 +57,20 @@ impl Args {
                 Args { command: Command::Build { dir, output } }
             }
             "edit" => {
-                let path = if args.len() > 2 {
-                    Some(expand_path(&args[2]))
-                } else {
-                    None
-                };
+                let path = if args.len() > 2 { Some(expand_path(&args[2])) } else { None };
                 Args { command: Command::Edit(path) }
             }
+            "update" => Args { command: Command::Update },
             other => {
                 let path = expand_path(other);
                 if other.ends_with(".ngal") {
-                    Args { command: Command::RunPacked(path) }
+                    let mut debug = false;
+                    for arg in &args[2..] {
+                        if arg == "--debug" { debug = true; }
+                    }
+                    Args {
+                        command: Command::RunPacked { file: path, debug },
+                    }
                 } else {
                     Args { command: Command::Run(path) }
                 }
@@ -85,15 +82,17 @@ impl Args {
         println!("ngal - 终端视觉小说引擎");
         println!();
         println!("用法:");
-        println!("  ngal                    在当前目录运行游戏");
-        println!("  ngal <目录>             在指定目录运行游戏");
-        println!("  ngal <文件.ngal>        运行打包好的游戏");
-        println!("  ngal new [目录]         创建新项目（默认当前目录）");
-        println!("  ngal status [目录]      查看项目资源状态");
-        println!("  ngal build [目录] [名]  打包游戏为 .ngal 文件");
-        println!("  ngal edit [目录/文件]   图形化编辑剧情文件");
-        println!("  ngal -h | --help        显示此帮助信息");
-        println!("  ngal -V | --version     显示版本信息");
+        println!("  ngal                          在当前目录运行游戏");
+        println!("  ngal <目录>                   在指定目录运行游戏");
+        println!("  ngal <文件.ngal>              运行打包好的游戏");
+        println!("  ngal <文件.ngal> --debug      显示运行信息");
+        println!("  ngal new [目录]               创建新项目");
+        println!("  ngal status [目录]            查看项目资源状态");
+        println!("  ngal build [目录] [名字]      打包游戏为 .ngal 文件");
+        println!("  ngal edit [路径]              图形化编辑剧情文件");
+        println!("  ngal update                   更新到最新版本");
+        println!("  ngal -h | --help              显示此帮助信息");
+        println!("  ngal -V | --version           显示版本信息");
     }
 
     pub fn print_version() {

@@ -6,7 +6,7 @@ use crate::app::AppState;
 use crate::variables::Variables;
 use crate::parser::ImageParams;
 
-pub const MAX_SLOTS: usize = 10;
+pub const MAX_SLOTS: usize = 999;
 
 #[derive(Serialize, Deserialize)]
 pub struct SaveData {
@@ -94,5 +94,43 @@ impl SaveData {
 
     fn slot_path(slot: usize) -> PathBuf {
         PathBuf::from(format!("save/slot{}.json", slot))
+    }
+}
+
+impl SaveData {
+    /// 列出所有已存在的槽位编号（升序）
+    pub fn list_slots() -> Vec<usize> {
+        let dir = std::path::PathBuf::from("save");
+        let mut slots = Vec::new();
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if let Some(rest) = name.strip_prefix("slot") {
+                    if let Some(num_str) = rest.strip_suffix(".json") {
+                        if let Ok(n) = num_str.parse::<usize>() {
+                            if n >= 1 && n <= MAX_SLOTS {
+                                slots.push(n);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        slots.sort();
+        slots
+    }
+
+    /// 返回第一个可用的空槽位编号（用于新建存档）
+    pub fn next_empty_slot() -> usize {
+        let existing = Self::list_slots();
+        let mut n = 1;
+        for &s in &existing {
+            if s == n {
+                n += 1;
+            } else if s > n {
+                break;
+            }
+        }
+        n.min(MAX_SLOTS)
     }
 }
