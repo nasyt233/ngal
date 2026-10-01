@@ -35,9 +35,6 @@ fn main() -> Result<()> {
             ed.run()
         }
         args::Command::Run(game_dir) => {
-            // 源码/解压模式：使用文件系统资源源
-            ngal::assets::set_filesystem();
-        
             if !game_dir.exists() {
                 eprintln!("目录不存在: {}", game_dir.display());
                 return Ok(());
@@ -49,13 +46,13 @@ fn main() -> Result<()> {
                 game_dir.clone()
             };
         
-            // 当前目录有游戏？
             if !check_dir.join("assets/game.json").exists() {
-                // 没找到 → 进入扫描模式
                 return ngal::scanner::run_scanner(&check_dir);
             }
         
-            // 找到 → 正常启动
+            // 确认是文件系统游戏 → 用 FS 模式
+            ngal::assets::set_filesystem();
+        
             if game_dir != Path::new(".") {
                 std::env::set_current_dir(&game_dir)?;
             }
