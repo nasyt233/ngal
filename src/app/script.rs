@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::parser::{self, DialogueCommand};
 use crate::variables::Variables;
 use super::{App, AppState};
+use std::time::{Duration, Instant};
 
 impl App {
     // ==================== 执行命令 ====================
@@ -35,6 +36,10 @@ impl App {
                 } else if let Some(s) = final_speaker {
                     self.play_voice_by_file(s, None);
                 }
+            }
+            DialogueCommand::Sleep { seconds } => {
+                let dur = Duration::from_secs_f64(seconds);
+                self.sleep_until = Some(Instant::now() + dur);
             }
             DialogueCommand::Image(params) => {
                 self.current_image_params = Some(params);
@@ -180,21 +185,56 @@ impl App {
 
     // ==================== 开始游戏 ====================
 
-    pub fn start_game(&mut self) {
-        self.snapshot_stack.clear();
-        self.history_selected = 0;
+    // ==================== 开始游戏 ====================
 
-        self.current_file = Some("dialogue.ng".to_string());
+    pub fn start_game(&mut self) {
+        // ========== 完全重置游戏状态 ==========
+        self.snapshot_stack.clear();
+        self.history.clear();
+        self.history_selected = 0;
+        self.selected = 0;
+        self.auto_play_timer = None;
+        self.status_message = None;
+        self.prev_state = None;
+    
+        self.target_text.clear();
+        self.display_text.clear();
+        self.input_buffer.clear();
         self.current_bgm = None;
         self.current_image_params = None;
         self.current_background = None;
-        self.target_text = String::new();
-        self.display_text = String::new();
-        self.input_buffer = String::new();
-        self.prev_state = None;
+        self.current_file = None;
+    
         self.stop_bgm();
+        self.stop_voice();
+    
         self.variables = Variables::new();
-
+    
+        // ========== 清空并重新加载主剧情 ==========
+        self.scenes.clear();
+        self.file_scene_order.clear();
+    
+        match parser::load_dialogue() {
+            Ok(content) => match parser::parse_dialogue_file_with_order(&content) {
+                Ok((scenes, order)) => {
+                    self.scenes = scenes;
+                    self.file_scene_order.insert("dialogue.ng".to_string(), order);
+                    self.current_file = Some("dialogue.ng".to_string());
+                }
+                Err(e) => {
+                    self.state = AppState::Menu;
+                    self.status_message = Some(format!("解析剧本失败: {}", e));
+                    return;
+                }
+            },
+            Err(e) => {
+                self.state = AppState::Menu;
+                self.status_message = Some(format!("加载剧本失败: {}", e));
+                return;
+            }
+        }
+    
+        // ========== 从 welcome 开始 ==========
         let initial_scene = "welcome".to_string();
         if self.scenes.contains_key(&initial_scene) {
             let scene_id = initial_scene.clone();
@@ -213,7 +253,7 @@ impl App {
             self.status_message = Some("未找到起始场景 welcome".to_string());
         }
     }
-
+    
     // ==================== 加载外部文件 ====================
 
     pub fn load_external_file(&mut self, file_name: &str) -> Result<()> {
@@ -251,8 +291,6 @@ impl App {
 
         let next_cmd_index = current_cmd_index + 1;
         if let Some(next_cmd) = scene.commands.get(next_cmd_index) {
-            self.target_text = String::new();
-            self.display_text = String::new();
             self.state = AppState::InDialogue {
                 scene_id: current_scene_id,
                 cmd_index: next_cmd_index,

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use anyhow::Result;
+use crate::defaults;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +23,7 @@ pub enum DialogueCommand {
     Input { prompt: String, var_name: String },
     SetVar { name: String, value: String },
     If { condition: String, target: String },
+    Sleep { seconds: f64 },
 }
 
 pub struct SceneData {
@@ -121,6 +123,13 @@ pub fn parse_dialogue_file_with_order(content: &str) -> Result<(HashMap<String, 
                     var_name: rest.to_string(),
                 });
             }
+        } else if line.starts_with("sleep:") {
+            let rest = line[6..].trim();
+            if let Ok(seconds) = rest.parse::<f64>() {
+                if seconds > 0.0 && seconds <= 60.0 {
+                    current_commands.push(DialogueCommand::Sleep { seconds });
+                }
+            }
         } else if line.starts_with("if ") {
             let rest = &line[3..];
             if let Some(colon_pos) = rest.find(':') {
@@ -159,7 +168,7 @@ fn parse_text_line(line: &str, commands: &mut Vec<DialogueCommand>) {
     commands.push(DialogueCommand::Text { speaker, text, voice });
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct GameConfig {
     pub title: String,
     pub footer: String,
@@ -167,12 +176,83 @@ pub struct GameConfig {
     pub logo: Option<String>,
     pub bgm: Option<String>,
     pub menu_image: Option<String>,
+    pub menu_layout: u8,
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        // 直接用内置默认，保证和 DEFAULT_GAME_CONFIG 同步
+        serde_json::from_str(defaults::DEFAULT_GAME_CONFIG)
+            .expect("内置 DEFAULT_GAME_CONFIG 必须是合法 JSON")
+    }
 }
 
 pub fn load_game_config() -> Result<GameConfig> {
     let content = crate::assets::read_text("assets/game.json")
         .ok_or_else(|| anyhow::anyhow!("找不到 assets/game.json"))?;
-    Ok(serde_json::from_str(&content)?)
+
+    let mut config = GameConfig::default();
+    let mut needs_fix = false;
+
+    match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(value) => {
+            // title
+            if let Some(s) = value.get("title").and_then(|v| v.as_str()) {
+                config.title = s.to_string();
+            } else {
+                needs_fix = true;
+            }
+            // footer
+            if let Some(s) = value.get("footer").and_then(|v| v.as_str()) {
+                config.footer = s.to_string();
+            } else {
+                needs_fix = true;
+            }
+            // index
+            if let Some(s) = value.get("index").and_then(|v| v.as_str()) {
+                config.index = s.to_string();
+            } else {
+                needs_fix = true;
+            }
+            // logo / bgm / menu_image：可空，缺失不视为需要修复
+            config.logo = value
+                .get("logo")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            config.bgm = value
+                .get("bgm")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            config.menu_image = value
+                .get("menu_image")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            // menu_layout
+            if let Some(n) = value.get("menu_layout").and_then(|v| v.as_u64()) {
+                let clamped = (n as u8).clamp(1, 5);
+                if clamped != n as u8 {
+                    needs_fix = true;
+                }
+                config.menu_layout = clamped;
+            } else {
+                needs_fix = true;
+            }
+        }
+        Err(_) => {
+            // JSON 完全损坏 → 整体用默认
+            needs_fix = true;
+        }
+    }
+
+    // 补全后写回（仅文件系统模式；打包模式 game.json 在内存里）
+    if needs_fix && !crate::assets::is_memory() {
+        if let Ok(json) = serde_json::to_string_pretty(&config) {
+            let _ = std::fs::write("assets/game.json", json);
+        }
+    }
+
+    Ok(config)
 }
 
 pub fn load_dialogue() -> Result<String> {

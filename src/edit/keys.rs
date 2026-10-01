@@ -13,6 +13,7 @@ impl Editor {
             EditorMode::Input => self.handle_input(key),
             EditorMode::FilePicker => self.handle_file_picker(key),
             EditorMode::ScenePicker => self.handle_scene_picker(key),
+            EditorMode::CharacterPicker => self.handle_character_picker(key),
             EditorMode::DirectEdit => self.handle_direct_edit(key, modifiers),
             EditorMode::ConfirmDelete => self.handle_confirm_delete(key),
             EditorMode::FileNameInput { .. } => self.handle_file_name_input(key),
@@ -24,6 +25,9 @@ impl Editor {
         }
     }
 
+    // ============================================================
+    // Input 模式
+    // ============================================================
     fn handle_input(&mut self, key: KeyCode) {
         match key {
             KeyCode::Enter => {
@@ -52,36 +56,51 @@ impl Editor {
         }
     }
 
+    // ============================================================
+    // 文件选择器
+    // ============================================================
     fn handle_file_picker(&mut self, key: KeyCode) {
         match key {
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc => {
                 self.mode = EditorMode::Normal;
+                self.picker_query.clear();
+                self.picker_replace_start = None;
                 self.status_message = Some("已取消选择".to_string());
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.picker_selected > 0 {
+            KeyCode::Up => {
+                if self.picker_focused {
+                    self.picker_focused = false;
+                    self.picker_selected = 0;
+                } else if self.picker_selected > 0 {
                     self.picker_selected -= 1;
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if !self.picker_files.is_empty()
+            KeyCode::Down => {
+                if self.picker_focused {
+                    self.picker_focused = false;
+                    self.picker_selected = 0;
+                } else if !self.picker_files.is_empty()
                     && self.picker_selected < self.picker_files.len() - 1
                 {
                     self.picker_selected += 1;
                 }
             }
             KeyCode::Home => {
+                self.picker_focused = false;
                 self.picker_selected = 0;
             }
             KeyCode::End => {
+                self.picker_focused = false;
                 if !self.picker_files.is_empty() {
                     self.picker_selected = self.picker_files.len() - 1;
                 }
             }
             KeyCode::PageUp => {
+                self.picker_focused = false;
                 self.picker_selected = self.picker_selected.saturating_sub(10);
             }
             KeyCode::PageDown => {
+                self.picker_focused = false;
                 if !self.picker_files.is_empty() {
                     self.picker_selected =
                         (self.picker_selected + 10).min(self.picker_files.len() - 1);
@@ -90,53 +109,100 @@ impl Editor {
             KeyCode::Enter => {
                 if let Some(filename) = self.picker_files.get(self.picker_selected).cloned() {
                     self.push_undo();
-                    let line = match self.picker_target {
+
+                    let line_content = match self.picker_target {
                         0 => format!("music:{}", filename),
                         1 => format!("bg:{}", filename),
                         2 => format!("img:{}", filename),
                         _ => filename.clone(),
                     };
-                    let insert_pos = self.content_cursor.min(self.content.len());
-                    self.content.insert(insert_pos, line);
-                    self.content_cursor = insert_pos + 1;
+
+                    if let Some(start) = self.picker_replace_start.take() {
+                        // 从补全触发：替换光标前的部分
+                        if self.content_cursor < self.content.len() {
+                            let cur = self.content[self.content_cursor].clone();
+                            let chars: Vec<char> = cur.chars().collect();
+                            let end = self.content_col.min(chars.len());
+                            let real_start = start.min(chars.len());
+                            let before: String = chars[..real_start].iter().collect();
+                            let after: String = chars[end..].iter().collect();
+                            self.content[self.content_cursor] =
+                                format!("{}{}{}", before, line_content, after);
+                            self.content_col = real_start + line_content.chars().count();
+                        }
+                    } else {
+                        // 从菜单进入：插入新行
+                        let insert_pos = self.content_cursor.min(self.content.len());
+                        self.content.insert(insert_pos, line_content);
+                        self.content_cursor = insert_pos + 1;
+                        self.content_col = 0;
+                    }
+
                     self.status_message = Some(format!("✓ 已插入 {}", filename));
                 }
                 self.mode = EditorMode::Normal;
+                self.picker_query.clear();
+                self.picker_replace_start = None;
+            }
+            KeyCode::Backspace => {
+                self.picker_focused = true;
+                self.picker_query.pop();
+                self.filter_picker_files();
+            }
+            KeyCode::Char(c) => {
+                self.picker_focused = true;
+                self.picker_query.push(c);
+                self.filter_picker_files();
             }
             _ => {}
         }
     }
 
+    // ============================================================
+    // 场景选择器
+    // ============================================================
     fn handle_scene_picker(&mut self, key: KeyCode) {
         match key {
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc => {
                 self.mode = EditorMode::Normal;
+                self.scene_query.clear();
+                self.scene_replace_start = None;
                 self.status_message = Some("已取消选择".to_string());
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.scene_selected > 0 {
+            KeyCode::Up => {
+                if self.scene_focused {
+                    self.scene_focused = false;
+                    self.scene_selected = 0;
+                } else if self.scene_selected > 0 {
                     self.scene_selected -= 1;
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if !self.scene_list.is_empty()
+            KeyCode::Down => {
+                if self.scene_focused {
+                    self.scene_focused = false;
+                    self.scene_selected = 0;
+                } else if !self.scene_list.is_empty()
                     && self.scene_selected < self.scene_list.len() - 1
                 {
                     self.scene_selected += 1;
                 }
             }
             KeyCode::Home => {
+                self.scene_focused = false;
                 self.scene_selected = 0;
             }
             KeyCode::End => {
+                self.scene_focused = false;
                 if !self.scene_list.is_empty() {
                     self.scene_selected = self.scene_list.len() - 1;
                 }
             }
             KeyCode::PageUp => {
+                self.scene_focused = false;
                 self.scene_selected = self.scene_selected.saturating_sub(10);
             }
             KeyCode::PageDown => {
+                self.scene_focused = false;
                 if !self.scene_list.is_empty() {
                     self.scene_selected =
                         (self.scene_selected + 10).min(self.scene_list.len() - 1);
@@ -157,17 +223,99 @@ impl Editor {
                     } else {
                         format!("load:{}:{}", file_name, scene_name)
                     };
-                    let insert_pos = self.content_cursor.min(self.content.len());
-                    self.content.insert(insert_pos, line);
-                    self.content_cursor = insert_pos + 1;
+
+                    if let Some(start) = self.scene_replace_start.take() {
+                        if self.content_cursor < self.content.len() {
+                            let cur = self.content[self.content_cursor].clone();
+                            let chars: Vec<char> = cur.chars().collect();
+                            let end = self.content_col.min(chars.len());
+                            let real_start = start.min(chars.len());
+                            let before: String = chars[..real_start].iter().collect();
+                            let after: String = chars[end..].iter().collect();
+                            self.content[self.content_cursor] =
+                                format!("{}{}{}", before, line, after);
+                            self.content_col = real_start + line.chars().count();
+                        }
+                    } else {
+                        let insert_pos = self.content_cursor.min(self.content.len());
+                        self.content.insert(insert_pos, line);
+                        self.content_cursor = insert_pos + 1;
+                        self.content_col = 0;
+                    }
                     self.status_message = Some(format!("✓ 已插入 {}", scene_name));
                 }
                 self.mode = EditorMode::Normal;
+                self.scene_query.clear();
+                self.scene_replace_start = None;
+            }
+            KeyCode::Backspace => {
+                self.scene_focused = true;
+                self.scene_query.pop();
+                self.filter_scene_list();
+            }
+            KeyCode::Char(c) => {
+                self.scene_focused = true;
+                self.scene_query.push(c);
+                self.filter_scene_list();
             }
             _ => {}
         }
     }
 
+    // ============================================================
+    // 角色选择器
+    // ============================================================
+    fn handle_character_picker(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.mode = EditorMode::Normal;
+                self.status_message = Some("已取消".to_string());
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.character_selected > 0 {
+                    self.character_selected -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.character_list.is_empty()
+                    && self.character_selected < self.character_list.len() - 1
+                {
+                    self.character_selected += 1;
+                }
+            }
+            KeyCode::Home => {
+                self.character_selected = 0;
+            }
+            KeyCode::End => {
+                if !self.character_list.is_empty() {
+                    self.character_selected = self.character_list.len() - 1;
+                }
+            }
+            KeyCode::Enter => {
+                let choice = self
+                    .character_list
+                    .get(self.character_selected)
+                    .cloned()
+                    .unwrap_or(None);
+                match choice {
+                    Some(name) => {
+                        self.input_prompt = format!("对话内容 (角色: {})", name);
+                        self.input_buffer = format!("{}:", name);
+                    }
+                    None => {
+                        self.input_prompt = "对话 (格式: 说话人:文本)".to_string();
+                        self.input_buffer.clear();
+                    }
+                }
+                self.mode = EditorMode::Input;
+            }
+            _ => {}
+        }
+    }
+
+    // ============================================================
+    // 文件列表焦点
+    // ============================================================
     fn handle_file_list_focus(&mut self, key: KeyCode) {
         match key {
             KeyCode::F(5) => {
@@ -362,7 +510,50 @@ impl Editor {
         }
     }
 
+    // ============================================================
+    // 直接编辑模式
+    // ============================================================
     fn handle_direct_edit(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        // ---------- 补全激活时优先处理 ----------
+        if self.completion_active {
+            match key {
+                KeyCode::Esc => {
+                    self.cancel_completion();
+                    return;
+                }
+                KeyCode::Up => {
+                    if self.completion_selected > 0 {
+                        self.completion_selected -= 1;
+                    }
+                    return;
+                }
+                KeyCode::Down => {
+                    if self.completion_selected
+                        < self.completion_items.len().saturating_sub(1)
+                    {
+                        self.completion_selected += 1;
+                    }
+                    return;
+                }
+                KeyCode::Tab | KeyCode::Enter => {
+                    self.accept_completion();
+                    return;
+                }
+                KeyCode::Backspace => {
+                    // 关闭补全，继续走下面的删除逻辑
+                    self.cancel_completion();
+                    // 不 return，让 Backspace 正常处理
+                }
+                KeyCode::Char(_) => {
+                    // 继续输入，不关闭补全（下面插入后重新匹配）
+                }
+                _ => {
+                    self.cancel_completion();
+                }
+            }
+        }
+
+        // ---------- Ctrl 组合键 ----------
         if modifiers.contains(KeyModifiers::CONTROL) {
             match key {
                 KeyCode::Char('s') | KeyCode::Char('S') => {
@@ -381,11 +572,17 @@ impl Editor {
             KeyCode::F(5) => {
                 self.request_run_test();
             }
-            KeyCode::Tab | KeyCode::Esc => {
+            KeyCode::Tab => {
+                // 补全未激活：Tab 主动触发（允许弹选择器）
+                self.maybe_trigger_completion(true);
+            }
+            KeyCode::Esc => {
                 self.mode = EditorMode::Normal;
+                self.cancel_completion();
                 self.status_message = Some("已切换到菜单模式".to_string());
             }
             KeyCode::Up => {
+                self.cancel_completion();
                 if self.content_cursor > 0 {
                     self.content_cursor -= 1;
                     self.clamp_col();
@@ -396,6 +593,7 @@ impl Editor {
                 }
             }
             KeyCode::Down => {
+                self.cancel_completion();
                 if self.content_cursor < self.content.len().saturating_sub(1) {
                     self.content_cursor += 1;
                     self.clamp_col();
@@ -407,6 +605,7 @@ impl Editor {
                 }
             }
             KeyCode::PageUp => {
+                self.cancel_completion();
                 self.content_cursor = self.content_cursor.saturating_sub(10);
                 self.clamp_col();
                 self.adjust_hscroll();
@@ -415,6 +614,7 @@ impl Editor {
                 }
             }
             KeyCode::PageDown => {
+                self.cancel_completion();
                 if self.content_cursor + 10 < self.content.len() {
                     self.content_cursor += 10;
                 } else {
@@ -428,12 +628,14 @@ impl Editor {
                 }
             }
             KeyCode::Left => {
+                self.cancel_completion();
                 if self.content_col > 0 {
                     self.content_col -= 1;
                     self.adjust_hscroll();
                 }
             }
             KeyCode::Right => {
+                self.cancel_completion();
                 if self.content_cursor < self.content.len() {
                     let len = self.content[self.content_cursor].chars().count();
                     if self.content_col < len {
@@ -443,16 +645,19 @@ impl Editor {
                 }
             }
             KeyCode::Home => {
+                self.cancel_completion();
                 self.content_col = 0;
                 self.content_hscroll = 0;
             }
             KeyCode::End => {
+                self.cancel_completion();
                 if self.content_cursor < self.content.len() {
                     self.content_col = self.content[self.content_cursor].chars().count();
                     self.adjust_hscroll();
                 }
             }
             KeyCode::Enter => {
+                self.cancel_completion();
                 self.push_undo();
                 if self.content_cursor < self.content.len() {
                     let line = self.content[self.content_cursor].clone();
@@ -468,6 +673,7 @@ impl Editor {
                 }
             }
             KeyCode::Backspace => {
+                // 关键：Backspace 不触发补全
                 self.push_undo();
                 if self.content_col > 0 && self.content_cursor < self.content.len() {
                     let line = &mut self.content[self.content_cursor];
@@ -490,8 +696,11 @@ impl Editor {
                     self.content_col = prev_len;
                     self.adjust_hscroll();
                 }
+                // 明确关闭补全（Backspace 不重新触发）
+                self.cancel_completion();
             }
             KeyCode::Delete => {
+                self.cancel_completion();
                 self.push_undo();
                 if self.content_cursor < self.content.len() {
                     let line = &mut self.content[self.content_cursor];
@@ -511,21 +720,61 @@ impl Editor {
                 if self.content_cursor >= self.content.len() {
                     return;
                 }
+
+                // -------- 特殊：$ → $() --------
+                if c == '$' {
+                    let line = &mut self.content[self.content_cursor];
+                    let chars: Vec<char> = line.chars().collect();
+                    let pos = self.content_col.min(chars.len());
+                    let mut new_chars: Vec<char> = Vec::with_capacity(chars.len() + 3);
+                    new_chars.extend_from_slice(&chars[..pos]);
+                    new_chars.push('$');
+                    new_chars.push('(');
+                    new_chars.push(')');
+                    new_chars.extend_from_slice(&chars[pos..]);
+                    *line = new_chars.into_iter().collect();
+                    self.content_col += 2;
+                    self.adjust_hscroll();
+                    self.maybe_trigger_completion(false);
+                    return;
+                }
+
+                // -------- 自动配对 --------
+                let closing = match c {
+                    '"' => Some('"'),
+                    '\'' => Some('\''),
+                    '{' => Some('}'),
+                    '[' => Some(']'),
+                    '(' => Some(')'),
+                    '<' => Some('>'),
+                    _ => None,
+                };
+
                 let line = &mut self.content[self.content_cursor];
                 let chars: Vec<char> = line.chars().collect();
                 let pos = self.content_col.min(chars.len());
-                let mut new_chars: Vec<char> = Vec::with_capacity(chars.len() + 1);
+                let mut new_chars: Vec<char> = Vec::with_capacity(chars.len() + 2);
                 new_chars.extend_from_slice(&chars[..pos]);
                 new_chars.push(c);
+                if let Some(end) = closing {
+                    new_chars.push(end);
+                }
                 new_chars.extend_from_slice(&chars[pos..]);
                 *line = new_chars.into_iter().collect();
                 self.content_col += 1;
                 self.adjust_hscroll();
+
+                // -------- 触发/刷新补全 --------
+                // 唯一匹配会自动应用；多匹配会弹菜单
+                self.maybe_trigger_completion(false);
             }
             _ => {}
         }
     }
 
+    // ============================================================
+    // Normal 模式
+    // ============================================================
     fn handle_normal(&mut self, key: KeyCode, modifiers: KeyModifiers) {
         if self.show_help {
             self.show_help = false;
@@ -640,6 +889,22 @@ impl Editor {
                     }
                     self.clamp_col();
                     self.status_message = Some("已删除一行".to_string());
+                }
+            }
+            KeyCode::Char(' ') => {
+                self.push_undo();
+                if self.content_cursor < self.content.len() {
+                    let line = self.content[self.content_cursor].clone();
+                    let chars: Vec<char> = line.chars().collect();
+                    let pos = self.content_col.min(chars.len());
+                    let left: String = chars[..pos].iter().collect();
+                    let right: String = chars[pos..].iter().collect();
+                    self.content[self.content_cursor] = left;
+                    self.content.insert(self.content_cursor + 1, right);
+                    self.content_cursor += 1;
+                    self.content_col = 0;
+                    self.content_hscroll = 0;
+                    self.status_message = Some("⏎ 已换行".to_string());
                 }
             }
             KeyCode::Enter => {

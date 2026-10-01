@@ -37,27 +37,29 @@ fn main() -> Result<()> {
         args::Command::Run(game_dir) => {
             // 源码/解压模式：使用文件系统资源源
             ngal::assets::set_filesystem();
-
+        
             if !game_dir.exists() {
                 eprintln!("目录不存在: {}", game_dir.display());
                 return Ok(());
             }
-
+        
             let check_dir = if game_dir == Path::new(".") {
                 std::env::current_dir()?
             } else {
                 game_dir.clone()
             };
-
+        
+            // 当前目录有游戏？
             if !check_dir.join("assets/game.json").exists() {
-                eprintln!("当前目录没有游戏文件，输入 ngal help 查看帮助");
-                return Ok(());
+                // 没找到 → 进入扫描模式
+                return ngal::scanner::run_scanner(&check_dir);
             }
-
+        
+            // 找到 → 正常启动
             if game_dir != Path::new(".") {
                 std::env::set_current_dir(&game_dir)?;
             }
-
+        
             let result = runner::run_game();
             ngal::assets::cleanup_cache();
             result

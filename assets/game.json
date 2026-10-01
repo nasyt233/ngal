@@ -4,5 +4,6 @@
   "index": "dialog/dialogue.ng",
   "logo": "logo.png",
   "bgm": "bg.mp3",
-  "menu_image": "logo.png"
+  "menu_image": "logo.png",
+  "menu_layout": 1
 }

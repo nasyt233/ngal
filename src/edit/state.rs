@@ -3,12 +3,14 @@ use ratatui::style::Color;
 
 pub const MENU_ITEMS: &[&str] = &[
     "插入对话",
+    "插入输入",
     "插入音乐",
     "插入背景",
     "插入图片",
     "插入分支",
     "插入场景标记",
     "插入加载",
+    "插入等待",
     "插入命令",
     "插入结束",
     "────────────────",
@@ -41,6 +43,7 @@ pub enum EditorMode {
     Input,
     FilePicker,
     ScenePicker,
+    CharacterPicker,
     DirectEdit,
     ConfirmDelete,
     FileNameInput {
@@ -76,4 +79,20 @@ pub struct StatInfo {
     pub missing_images: Vec<String>,
     pub missing_music: Vec<String>,
     pub missing_voices: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct CompletionItem {
+    pub label: String,
+    pub insert: String,
+    pub desc: String,
+    pub kind: CompletionKind,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum CompletionKind {
+    Insert,
+    FilePicker(usize),
+    ScenePicker,
+    CharacterPicker,
 }

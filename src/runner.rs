@@ -33,6 +33,7 @@ pub fn run_game() -> Result<()> {
 
     loop {
         app.update_animation();
+        app.tick_sleep();
         terminal.draw(|f| ui::draw(f, &mut app))?;
         app.update_auto_play();
 

@@ -6,32 +6,36 @@ pub const DEFAULT_GAME_CONFIG: &str = r#"{
   "index": "dialog/dialogue.ng",
   "logo": "logo.png",
   "bgm": "bgm.mp3",
-  "menu_image": "logo.png"
+  "menu_image": "logo.png",
+  "menu_layout": 1
 }"#;
 
-pub const DEFAULT_DIALOGUE: &str = r#"# ngal 示例教学默认剧情    # 符号为注释
+pub const DEFAULT_DIALOGUE: &str = r#"# ngal v1.0.4示例教学默认剧情    # 符号为注释
 
 [welcome]               # [welcome]为剧情入口
 第一章                   # 没角色名直接显示文字
-load:index              # 加载其他剧情，支持同目录下其他剧情文件(load:day1.ng:welcome)
+load:index              # 加载其他子剧情，支持同目录下其他剧情文件(load:day1.ng:welcome)
 
-[index]                 # 子剧情
+[index]                 # 子剧情中间不能有空行，否则断开
 name = 嘉豪              # 变量设置
 bg:bg.png               # 加载背景图
+系统:等待2秒
+sleep:2                 # 等待2秒过程无法操作,完成后自动执行下条命令。
+系统:2秒等待结束。
 music:bg.mp3            # 加载音乐
 img:logo.png:2:50%      # 加载立绘(位置有123可选分别对应左中右,50%指的比例大小)
 系统:欢迎来到 ngal 引擎！   # 带角色名显示文字
 系统:你好用户:hello.mp3    # 带语音播放显示文字
-系统:当前时间 $(date)      # 命令执行功能
-系统:当前用户 $(whoami)
-系统:当前目录 $(pwd)
+系统:当前时间 $(date)      # $()命令执行功能默认使用sh
+系统:当前用户 $(whoami)\n当前目录 $(pwd)    # \n文字换行功能
 系统:来自于$(curl -s myip.ipip.net | grep -oE " 来自于.*" | sed s/来自于//)
-img:                     # 再次输入则关闭立绘(音乐,背景同理)
+img:logo2.png           # 可以切换立绘(音乐,背景同理)
+img:                    # 留空则关闭立绘(音乐,背景同理)
 系统:当前默认名字：{name}   # {}调用变量，在变量运算中可以不用{}
-input:请输入你的名字:name  # 读取用户输入变量
-{name}:我的名字是：{name}！# 变量也可以用于当角色名
+input:请输入你的名字:name   # 读取用户输入变量
+{name}:我的名字是：{name}！ # 变量也可以用于当角色名
 变量运算
-a = q13
+a = 13
 系统:a的值为{a}
 b = 78
 系统:b的值为{b}
@@ -39,7 +43,7 @@ c = a + b               # 变量运算支持(+, -, *, /)
 系统:相加计算结果为 {c}
 系统:下面是选项选择
 score = 10
-系统:当前分数为{score}     # 分支选择
+系统:当前分数为{score}     # 分支选择剧情每个选项用|分开
 choose:接受冒险(分数+8):accept|拒绝冒险(分数-5):refuse
 
 [accept]
@@ -60,6 +64,7 @@ if score >= 10: good_end # 满足要求跳转
 load:bad_end # 不满足，继续执行
 
 [good_end]
+end
 系统:当前分数大于或等于10
 系统:🤓 完美结局！得分 {score}
 load:exit
@@ -73,7 +78,7 @@ load:exit
 系统:游戏结束
 bg:    # 关闭背景
 music: # 停止播放音乐
-end"#;
+end    # 结束游戏"#;
 
 pub const DEFAULT_START_SH: &str = r#"#!/bin/sh
 # ngal 游戏启动脚本

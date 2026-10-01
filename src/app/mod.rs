@@ -35,10 +35,12 @@ pub struct App {
     pub menu_image: Option<crate::image::RgbaImage>,
     pub should_quit: bool,
     pub history: VecDeque<(Option<String>, String)>,
+    pub sleep_until: Option<Instant>,
     pub auto_play_timer: Option<Instant>,
     pub prev_state: Option<Box<AppState>>,
     pub title: String,
     pub footer: String,
+    pub menu_layout: u8,
     pub variables: Variables,
     pub input_buffer: String,
     pub current_background: Option<String>,
@@ -111,10 +113,12 @@ impl App {
             menu_image,
             should_quit: false,
             history: VecDeque::with_capacity(HISTORY_MAX),
+            sleep_until: None,
             auto_play_timer: None,
             prev_state: None,
             title: game_config.title,
             footer: game_config.footer,
+            menu_layout: game_config.menu_layout.clamp(1, 5),
             variables: Variables::new(),
             input_buffer: String::new(),
             current_background: None,
@@ -131,10 +135,12 @@ impl App {
     }
 
     fn ensure_directories() -> io::Result<()> {
+        // save/ 永远需要
         if !PathBuf::from("save").exists() {
             let _ = fs::create_dir_all("save");
         }
-    
+
+        // 文件系统模式才需要 assets 目录结构
         if !crate::assets::is_memory() {
             for dir in &[
                 "assets",
@@ -148,7 +154,7 @@ impl App {
                 }
             }
         }
-    
+
         Ok(())
     }
 

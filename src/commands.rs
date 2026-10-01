@@ -445,40 +445,42 @@ fn basename(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// 执行在线更新脚本（调用官方 install.sh）
+/// 执行在线更新脚本
 pub fn update() -> Result<()> {
     println!("正在检查更新...");
 
     let installer_url = "https://raw.gitcode.com/nasyt/ngal/raw/main/install.sh";
-    let script = format!("curl -L {} | sh", installer_url);
 
     #[cfg(unix)]
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&script)
-        .status();
+    {
+        let script = format!("curl -L {} | sh", installer_url);
+
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!("✅ 更新完成，请重新运行 ngal");
+                Ok(())
+            }
+            Ok(s) => {
+                eprintln!("❌ 更新脚本退出码: {:?}", s.code());
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 无法执行更新脚本: {}", e);
+                Ok(())
+            }
+        }
+    }
 
     #[cfg(windows)]
     {
-        // Windows 下没有 sh，提示用户手动更新
+        let _ = installer_url;
         eprintln!("Windows 请手动下载最新版：");
         eprintln!("https://gitcode.com/nasyt/ngal/releases");
-        return Ok(());
-    }
-
-    #[cfg(unix)]
-    match status {
-        Ok(s) if s.success() => {
-            println!("✅ 更新完成，请重新运行 ngal");
-            Ok(())
-        }
-        Ok(s) => {
-            eprintln!("❌ 更新脚本退出码: {:?}", s.code());
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("❌ 无法执行更新脚本: {}", e);
-            Ok(())
-        }
+        Ok(())
     }
 }

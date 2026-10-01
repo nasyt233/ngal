@@ -89,11 +89,15 @@ impl App {
         match &self.state {
             AppState::InDialogue { scene_id, cmd_index } => {
                 if let Some(scene) = self.scenes.get(scene_id) {
-                    if let Some(DialogueCommand::Text { speaker, .. }) =
-                        scene.commands.get(*cmd_index)
-                    {
-                        if let Some(s) = speaker {
-                            return Some(self.variables.interpolate(s));
+                    // 从当前位置往前找最近的 Text 命令（Sleep 期间显示上一条）
+                    for i in (0..=*cmd_index).rev() {
+                        if let Some(DialogueCommand::Text { speaker, .. }) =
+                            scene.commands.get(i)
+                        {
+                            if let Some(s) = speaker {
+                                return Some(self.variables.interpolate(s));
+                            }
+                            return None;
                         }
                     }
                 }
@@ -133,6 +137,15 @@ impl App {
                         _ => self.auto_play_timer = None,
                     }
                 }
+            }
+        }
+    }
+    /// 每帧调用：检查 sleep 计时器是否到期
+    pub fn tick_sleep(&mut self) {
+        if let Some(until) = self.sleep_until {
+            if Instant::now() >= until {
+                self.sleep_until = None;
+                self.advance_dialogue();
             }
         }
     }

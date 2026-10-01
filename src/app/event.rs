@@ -301,20 +301,27 @@ impl App {
                 return;
             }
             AppState::InDialogue { .. } => {
+                let sleeping = self.sleep_until.is_some();
                 match key {
                     KeyCode::Left => {
-                        self.rewind_dialogue();
+                        if !sleeping {
+                            self.rewind_dialogue();
+                        }
                     }
                     KeyCode::Right => {
-                        self.advance_dialogue();
-                        if self.config.auto_play {
-                            self.auto_play_timer = Some(Instant::now());
+                        if !sleeping {
+                            self.advance_dialogue();
+                            if self.config.auto_play {
+                                self.auto_play_timer = Some(Instant::now());
+                            }
                         }
                     }
                     KeyCode::Char(' ') | KeyCode::Enter => {
-                        self.advance_dialogue();
-                        if self.config.auto_play {
-                            self.auto_play_timer = Some(Instant::now());
+                        if !sleeping {
+                            self.advance_dialogue();
+                            if self.config.auto_play {
+                                self.auto_play_timer = Some(Instant::now());
+                            }
                         }
                     }
                     KeyCode::Esc | KeyCode::Char('q') => {

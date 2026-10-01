@@ -8,8 +8,9 @@ pub mod stats;
 pub mod syntax;
 
 pub use state::{
-    EditorMode, FileNameAction, StatInfo, C_ACCENT, C_BG, C_BG_ALT, C_BLUE, C_BORDER_DIM,
-    C_BORDER_FOCUS, C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW, MENU_ITEMS, UNDO_MAX,
+    CompletionItem, CompletionKind, EditorMode, FileNameAction, StatInfo, C_ACCENT, C_BG,
+    C_BG_ALT, C_BLUE, C_BORDER_DIM, C_BORDER_FOCUS, C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW,
+    MENU_ITEMS, UNDO_MAX,
 };
 
 use anyhow::Result;
@@ -29,6 +30,12 @@ use std::io::stdout;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// 用于补全触发时判断"完整命令"对应的选择器
+enum SelectorKind {
+    File(usize),
+    Scene,
+}
+
 pub struct Editor {
     pub(crate) content: Vec<String>,
     pub(crate) sidebar_selected: usize,
@@ -44,13 +51,39 @@ pub struct Editor {
     pub(crate) assets_dir: PathBuf,
     pub(crate) status_message: Option<String>,
     pub(crate) should_quit: bool,
+
+    // 文件选择器
     pub(crate) picker_files: Vec<String>,
+    pub(crate) picker_all_files: Vec<String>,
+    pub(crate) picker_query: String,
+    pub(crate) picker_focused: bool,
     pub(crate) picker_selected: usize,
     pub(crate) picker_target: usize,
     pub(crate) picker_title: String,
+    /// 从补全触发时，替换的起始位置（None = 插入新行）
+    pub(crate) picker_replace_start: Option<usize>,
+
+    // 场景选择器
     pub(crate) scene_list: Vec<(String, String)>,
+    pub(crate) scene_all_list: Vec<(String, String)>,
+    pub(crate) scene_query: String,
+    pub(crate) scene_focused: bool,
     pub(crate) scene_selected: usize,
     pub(crate) scene_title: String,
+    pub(crate) scene_replace_start: Option<usize>,
+
+    // 角色选择器
+    pub(crate) character_list: Vec<Option<String>>,
+    pub(crate) character_selected: usize,
+    pub(crate) character_title: String,
+
+    // 命令补全
+    pub(crate) completion_active: bool,
+    pub(crate) completion_items: Vec<CompletionItem>,
+    pub(crate) completion_selected: usize,
+    pub(crate) completion_query: String,
+    pub(crate) completion_start: usize,
+
     pub(crate) story_files: Vec<String>,
     pub(crate) story_selected: usize,
     pub(crate) story_state: ListState,
@@ -107,13 +140,34 @@ impl Editor {
             assets_dir,
             status_message: None,
             should_quit: false,
+
             picker_files: Vec::new(),
+            picker_all_files: Vec::new(),
+            picker_query: String::new(),
+            picker_focused: true,
             picker_selected: 0,
             picker_target: 0,
             picker_title: String::new(),
+            picker_replace_start: None,
+
             scene_list: Vec::new(),
+            scene_all_list: Vec::new(),
+            scene_query: String::new(),
+            scene_focused: true,
             scene_selected: 0,
             scene_title: String::new(),
+            scene_replace_start: None,
+
+            character_list: Vec::new(),
+            character_selected: 0,
+            character_title: String::new(),
+
+            completion_active: false,
+            completion_items: Vec::new(),
+            completion_selected: 0,
+            completion_query: String::new(),
+            completion_start: 0,
+
             story_files: Vec::new(),
             story_selected: 0,
             story_state,
@@ -144,6 +198,225 @@ impl Editor {
 
         Ok(editor)
     }
+
+    // ==================== 补全 ====================
+
+    pub(crate) fn all_commands() -> Vec<CompletionItem> {
+        vec![
+            CompletionItem {
+                label: "bg:".into(),
+                insert: "bg:".into(),
+                desc: "背景图片".into(),
+                kind: CompletionKind::FilePicker(1),
+            },
+            CompletionItem {
+                label: "choose:".into(),
+                insert: "choose:".into(),
+                desc: "分支选项 选项1:场景1|选项2:场景2".into(),
+                kind: CompletionKind::Insert,
+            },
+            CompletionItem {
+                label: "end".into(),
+                insert: "end".into(),
+                desc: "结束游戏".into(),
+                kind: CompletionKind::Insert,
+            },
+            CompletionItem {
+                label: "if ".into(),
+                insert: "if ".into(),
+                desc: "条件判断".into(),
+                kind: CompletionKind::Insert,
+            },
+            CompletionItem {
+                label: "img:".into(),
+                insert: "img:".into(),
+                desc: "角色立绘".into(),
+                kind: CompletionKind::FilePicker(2),
+            },
+            CompletionItem {
+                label: "input:".into(),
+                insert: "input:".into(),
+                desc: "用户输入 提示:变量名".into(),
+                kind: CompletionKind::Insert,
+            },
+            CompletionItem {
+                label: "load:".into(),
+                insert: "load:".into(),
+                desc: "跳转场景".into(),
+                kind: CompletionKind::ScenePicker,
+            },
+            CompletionItem {
+                label: "music:".into(),
+                insert: "music:".into(),
+                desc: "背景音乐".into(),
+                kind: CompletionKind::FilePicker(0),
+            },
+            CompletionItem {
+                label: "sleep:".into(),
+                insert: "sleep:".into(),
+                desc: "自动等待秒数".into(),
+                kind: CompletionKind::Insert,
+            },
+        ]
+    }
+
+    /// 检测并触发补全。
+    ///
+    /// - `allow_selector = true`（Tab 触发）：光标前是完整命令时弹选择器
+    /// - `allow_selector = false`（打字触发）：只弹补全菜单
+    pub(crate) fn maybe_trigger_completion(&mut self, allow_selector: bool) {
+        if self.content_cursor >= self.content.len() {
+            self.completion_active = false;
+            return;
+        }
+
+        let line = self.content[self.content_cursor].clone();
+        let chars: Vec<char> = line.chars().collect();
+        let pos = self.content_col.min(chars.len());
+        let before: String = chars[..pos].iter().collect();
+
+        // ---------- 1. Tab 触发时：检测光标前是否是完整命令 ----------
+        if allow_selector {
+            let trimmed = before.trim_start();
+            let trimmed_start = before.len() - trimmed.len();
+
+            let cmds: &[(&str, SelectorKind)] = &[
+                ("music:", SelectorKind::File(0)),
+                ("bg:", SelectorKind::File(1)),
+                ("img:", SelectorKind::File(2)),
+                ("load:", SelectorKind::Scene),
+            ];
+
+            for (cmd, kind) in cmds {
+                if trimmed == *cmd {
+                    self.completion_active = false;
+                    match kind {
+                        SelectorKind::File(t) => {
+                            self.open_file_picker(*t);
+                            self.picker_replace_start = Some(trimmed_start);
+                        }
+                        SelectorKind::Scene => {
+                            self.open_scene_picker();
+                            self.scene_replace_start = Some(trimmed_start);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+
+        // ---------- 2. 提取光标前的单词 ----------
+        let mut start = pos;
+        while start > 0 {
+            let c = chars[start - 1];
+            if c.is_ascii_alphabetic() || c == '_' {
+                start -= 1;
+            } else {
+                break;
+            }
+        }
+
+        let word: String = chars[start..pos].iter().collect();
+
+        if word.is_empty() || word.len() > 12 {
+            self.completion_active = false;
+            return;
+        }
+
+        // 光标前只允许是空白 + 这个单词
+        let line_before: String = chars[..pos].iter().collect();
+        if line_before.trim() != word {
+            self.completion_active = false;
+            return;
+        }
+
+        // ---------- 3. 匹配命令 ----------
+        let all = Self::all_commands();
+        let matches: Vec<CompletionItem> = all
+            .into_iter()
+            .filter(|c| c.label.starts_with(&word))
+            .collect();
+
+        if matches.is_empty() {
+            self.completion_active = false;
+            return;
+        }
+
+        // 唯一匹配且完全等于输入 → 隐藏
+        if matches.len() == 1 && matches[0].label == word {
+            self.completion_active = false;
+            return;
+        }
+
+
+        // 多匹配 → 显示补全菜单
+        self.completion_items = matches;
+        if self.completion_selected >= self.completion_items.len() {
+            self.completion_selected = 0;
+        }
+        self.completion_query = word;
+        self.completion_start = start;
+        self.completion_active = true;
+    }
+
+    /// 应用补全项
+    pub(crate) fn apply_completion(&mut self, item: CompletionItem, start: usize, pos: usize) {
+        if self.content_cursor >= self.content.len() {
+            return;
+        }
+        let line = self.content[self.content_cursor].clone();
+        let chars: Vec<char> = line.chars().collect();
+        let real_start = start.min(chars.len());
+        let real_pos = pos.min(chars.len());
+        let before: String = chars[..real_start].iter().collect();
+        let after: String = chars[real_pos..].iter().collect();
+
+        match item.kind {
+            CompletionKind::Insert => {
+                let new_line = format!("{}{}{}", before, item.insert, after);
+                self.content[self.content_cursor] = new_line;
+                self.content_col = real_start + item.insert.chars().count();
+            }
+            CompletionKind::FilePicker(target) => {
+                // 删掉输入的部分，弹出选择器
+                let new_line = format!("{}{}", before, after);
+                self.content[self.content_cursor] = new_line;
+                self.content_col = real_start;
+                self.open_file_picker(target);
+                self.picker_replace_start = Some(real_start);
+            }
+            CompletionKind::ScenePicker => {
+                let new_line = format!("{}{}", before, after);
+                self.content[self.content_cursor] = new_line;
+                self.content_col = real_start;
+                self.open_scene_picker();
+                self.scene_replace_start = Some(real_start);
+            }
+            CompletionKind::CharacterPicker => {
+                let new_line = format!("{}{}", before, after);
+                self.content[self.content_cursor] = new_line;
+                self.content_col = real_start;
+                self.open_character_picker();
+            }
+        }
+    }
+
+    pub(crate) fn accept_completion(&mut self) {
+        if !self.completion_active || self.completion_items.is_empty() {
+            return;
+        }
+        let item = self.completion_items[self.completion_selected].clone();
+        let start = self.completion_start;
+        let pos = self.content_col;
+        self.completion_active = false;
+        self.apply_completion(item, start, pos);
+    }
+
+    pub(crate) fn cancel_completion(&mut self) {
+        self.completion_active = false;
+    }
+
+    // ==================== 通用 ====================
 
     pub(crate) fn push_undo(&mut self) {
         if self.undo_stack.len() >= UNDO_MAX {
@@ -215,6 +488,7 @@ impl Editor {
                 self.content_scroll = 0;
                 self.content_hscroll = 0;
                 self.undo_stack.clear();
+                self.cancel_completion();
                 self.status_message = Some(format!("已切换到 {}", filename));
             }
             Err(e) => {
@@ -334,9 +608,11 @@ impl Editor {
     pub(crate) fn build_insert_line(&self) -> String {
         match self.sidebar_selected {
             0 => self.input_buffer.clone(),
-            4 => format!("choose:{}", self.input_buffer),
-            5 => format!("[{}]", self.input_buffer),
-            7 => format!("$(command {})", self.input_buffer),
+            1 => format!("input:{}", self.input_buffer),
+            5 => format!("choose:{}", self.input_buffer),
+            6 => format!("[{}]", self.input_buffer),
+            8 => format!("sleep:{}", self.input_buffer),
+            9 => format!("$(command {})", self.input_buffer),
             _ => self.input_buffer.clone(),
         }
     }
@@ -365,10 +641,13 @@ impl Editor {
         }
         files.sort();
 
+        self.picker_all_files = files.clone();
         self.picker_files = files;
         self.picker_selected = 0;
         self.picker_target = target;
         self.picker_title = title.to_string();
+        self.picker_query.clear();
+        self.picker_focused = true;
         self.mode = EditorMode::FilePicker;
     }
 
@@ -407,10 +686,109 @@ impl Editor {
 
         scenes.sort_by(|a, b| a.0.cmp(&b.0));
 
+        self.scene_all_list = scenes.clone();
         self.scene_list = scenes;
         self.scene_selected = 0;
         self.scene_title = "选择场景".to_string();
+        self.scene_query.clear();
+        self.scene_focused = true;
         self.mode = EditorMode::ScenePicker;
+    }
+
+    pub(crate) fn open_character_picker(&mut self) {
+        let mut chars: Vec<String> = Vec::new();
+
+        if self.dialog_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&self.dialog_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                    if ext != "ng" && ext != "txt" {
+                        continue;
+                    }
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        for line in content.lines() {
+                            let line = line.split('#').next().unwrap_or("").trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            if line.starts_with('[')
+                                || line.starts_with("img:")
+                                || line.starts_with("bg:")
+                                || line.starts_with("music:")
+                                || line.starts_with("choose:")
+                                || line.starts_with("load:")
+                                || line.starts_with("input:")
+                                || line.starts_with("sleep:")
+                                || line.starts_with("if ")
+                                || line == "end"
+                                || line.contains('=')
+                            {
+                                continue;
+                            }
+                            if let Some(idx) = line.find(':') {
+                                let speaker = line[..idx].trim();
+                                if !speaker.is_empty() && speaker.chars().count() < 32 {
+                                    let bad = speaker.contains('"')
+                                        || speaker.contains('\'')
+                                        || speaker.contains('\\')
+                                        || speaker.contains('`');
+                                    if !bad && !chars.contains(&speaker.to_string()) {
+                                        chars.push(speaker.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        chars.sort();
+
+        let mut list: Vec<Option<String>> = vec![None];
+        for c in chars {
+            list.push(Some(c));
+        }
+        self.character_list = list;
+        self.character_selected = 0;
+        self.character_title = "选择角色".to_string();
+        self.mode = EditorMode::CharacterPicker;
+    }
+
+    pub(crate) fn filter_picker_files(&mut self) {
+        if self.picker_query.is_empty() {
+            self.picker_files = self.picker_all_files.clone();
+        } else {
+            let q = self.picker_query.to_lowercase();
+            self.picker_files = self
+                .picker_all_files
+                .iter()
+                .filter(|f| f.to_lowercase().contains(&q))
+                .cloned()
+                .collect();
+        }
+        self.picker_selected = 0;
+    }
+
+    pub(crate) fn filter_scene_list(&mut self) {
+        if self.scene_query.is_empty() {
+            self.scene_list = self.scene_all_list.clone();
+        } else {
+            let q = self.scene_query.to_lowercase();
+            self.scene_list = self
+                .scene_all_list
+                .iter()
+                .filter(|(s, f)| {
+                    s.to_lowercase().contains(&q) || f.to_lowercase().contains(&q)
+                })
+                .cloned()
+                .collect();
+        }
+        self.scene_selected = 0;
     }
 
     pub(crate) fn request_run_test(&mut self) {
@@ -514,49 +892,67 @@ impl Editor {
     pub(crate) fn execute_menu_item(&mut self) {
         let idx = self.sidebar_selected;
         match idx {
-            0 => {
-                self.input_prompt = "对话 (格式: 说话人:文本)".to_string();
+            0 => self.open_character_picker(),
+            1 => {
+                self.input_prompt = "输入 (格式: 提示:变量)".to_string();
                 self.input_buffer.clear();
                 self.mode = EditorMode::Input;
             }
-            1 => self.open_file_picker(0),
-            2 => self.open_file_picker(1),
-            3 => self.open_file_picker(2),
+            2 => {
+                self.picker_replace_start = None;
+                self.open_file_picker(0);
+            }
+            3 => {
+                self.picker_replace_start = None;
+                self.open_file_picker(1);
+            }
             4 => {
+                self.picker_replace_start = None;
+                self.open_file_picker(2);
+            }
+            5 => {
                 self.input_prompt = "分支 (格式: 选项1:场景1|选项2:场景2)".to_string();
                 self.input_buffer.clear();
                 self.mode = EditorMode::Input;
             }
-            5 => {
+            6 => {
                 self.input_prompt = "场景名".to_string();
                 self.input_buffer.clear();
                 self.mode = EditorMode::Input;
             }
-            6 => self.open_scene_picker(),
             7 => {
+                self.scene_replace_start = None;
+                self.open_scene_picker();
+            }
+            8 => {
+                self.input_prompt = "等待秒数 (如 0.5)".to_string();
+                self.input_buffer = "0.5".to_string();
+                self.mode = EditorMode::Input;
+            }
+            9 => {
                 self.input_prompt = "系统命令 (如 date, uptime, whoami)".to_string();
                 self.input_buffer.clear();
                 self.mode = EditorMode::Input;
             }
-            8 => {
+            10 => {
                 self.push_undo();
                 let insert_pos = self.content_cursor.min(self.content.len());
                 self.content.insert(insert_pos, "end".to_string());
                 self.content_cursor = insert_pos + 1;
                 self.status_message = Some("已插入 end".to_string());
             }
-            10 => self.request_stats(),
-            11 => self.request_run_test(),
-            12 => self.request_build(),
-            13 => self.save(),
-            14 => {
+            12 => self.request_stats(),
+            13 => self.request_run_test(),
+            14 => self.request_build(),
+            15 => self.save(),
+            16 => {
                 self.mode = EditorMode::Shell {
                     buffer: String::new(),
                     output: vec!["输入命令，回车执行，ESC 退出".to_string(), String::new()],
                 };
             }
-            15 => self.undo(),
-            16 => {
+            17 => self.undo(),
+            18 => {
                 self.save();
                 self.should_quit = true;
             }

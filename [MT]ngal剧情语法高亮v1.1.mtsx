@@ -24,7 +24,7 @@
             0:"注释灰"
         },
         {
-            match:keywordsToRegex("music bg img load choose end input if"),
+            match:keywordsToRegex("music bg img load choose end input if sleep"),
             0:"指令蓝"
         },
         {

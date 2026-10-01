@@ -8,7 +8,7 @@ syntax match ngalComment "//.*"
 highlight ngalComment guifg=#555555
 
 " 指令：行首可选空格 + 关键字 music bg img load choose end input
-syntax match ngalKeyword /^\s*\(music\|bg\|img\|load\|choose\|end\|input\)\>/
+syntax match ngalKeyword /^\s*\(music\|bg\|img\|load\|choose\|end\|input\|sleep\)\>/
 highlight ngalKeyword guifg=#4298e8
 
 " 标签 [xxx]

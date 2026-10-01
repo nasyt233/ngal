@@ -1,191 +1,208 @@
+# ngal - Terminal Visual Novel Engine
+
 # 🎮 ngal - Terminal Visual Novel Engine
 
-Game Interface
-![Demo](image/ys.jpg)
-Editor Interface
-![Editor](image/edit.jpg)
 
-[简体中文 README](README.md)
-![web introduce](index.html)
+[中文说明](README.md)
 
-> A Rust-powered galgame engine that lets you enjoy visual novels right in your command-line interface.
+> A visual novel engine written in Rust, allowing you to enjoy visual novels directly inside your terminal.
+> 
+> 
 
 ## ✨ Features
-- 🎨 Colorful UI with double-border layout
-- 🖼️ Character sprites & background images (PNG/JPEG supported)
-- 🎵 Background music & character voice lines (requires mpv)
+
+- 🤓 Automatic game scanning
+- 🎨 Colorful UI with double-line border layout
+- 📝 Built-in easy-to-use script editor
+- 🖼️ Character portraits & background images (PNG / JPEG supported)
+- 🎵 Background music & character voice playback (requires mpv)
 - 📜 Branching choices & multiple endings
-- 💾 10 save slots
-- ⌨️ Auto-play, text animation, history log
-- 🎨 Adjustable background colors (dark purple / dark blue / dark green / dark red / gray / transparent)
-- 🧮 Variable arithmetic (`+ - * /`) and conditional `if` statements
-- 📝 In-line comments (`#`) and escape characters (`:` `"` `'` `\n` `\t`)
-- 🕹 The command execution $(uptime) can execute system commands to get announcements or things like that
+- 💾 Unlimited save slots
+- ⌨️ Auto-play, typewriter text animation, dialogue history
+- 🎨 Customizable background color
+- 🧮 Variable arithmetic (`+ - * /`) and `if` conditional branching
+- 📝 Inline comments (`#`) and escape sequences (`:` `"` `'` `\n` `\t`)
+- 🕹️ System command execution `$(uptime)` to fetch system information such as announcements
 
 ## 🚀 Quick Start
 
 ### Installation
 
-#### One-click install script
+#### One‑click install script for Linux / Termux
+
 ```bash
 bash -c "$(curl -L https://raw.gitcode.com/nasyt/ngal/raw/main/install.sh)"
 ```
 
 #### Build from source
+
 ```bash
 git clone https://github.com/nasyt233/ngal.git
 cd ngal
 cargo build --release
 ```
 
-#### Install from crates.io
+#### Install via [crates.io](crates.io)
+
 ```bash
 cargo install ngal
 ```
 
 ### Run
+
 ```bash
-ngal              # Run the game in the current directory
-ngal mygame       # Run the game in the specified directory
-ngal --version    # View version information
-ngal build        # Package the game
-ngal edit         # Content editor
+ngal              # Launch game in current directory
+ngal mygame       # Launch game from specified folder
+ngal --version    # Show version
+ngal build        # Package your game
+ngal edit         # Open built-in script editor
 ```
 
 ### Directory Structure
-The following directories are created automatically on first launch:
-```
+
+These folders will be auto‑created on first launch:
+
+```Plain Text
 assets/
 ├── game.json       # Game configuration
 ├── dialog/
-│   ├── dialogue.ng # Script file (.ng / .txt supported)
+│   ├── dialogue.ng # Main script file
 │   └── xxx.ng      # Additional script files
-├── portraits/      # Character sprites
-├── music/          # Background music
-└── voices/         # Character voice files
-save/               # Save data directory
+├── portraits/      # Character portrait images
+├── music/          # Background music files
+└── voices/         # Character voice audio
+save/               # Savegame directory
 ```
 
 ## 📖 Script Writing
 
 The main script file is `assets/dialog/dialogue.ng`. Both `.ng` and `.txt` file extensions are supported.
 
-### Basic Syntax
+### Basic Syntax Example
+
 ```ng
-# ngal example tutorial script    # # denotes comment
+# ngal v1.0.4 demo script    # # marks a comment line
 
-[welcome]               # [welcome] is entry point
-Chapter 1               # Plain text without speaker name
-load:index              # Jump to another scene; supports external file: load:day1.ng:welcome
+[welcome]               # [welcome] = entry point label
+Chapter One             # Plain text without speaker name is narration
+load:index              # Jump to another label inside current script
+# External script: load:day1.ng:welcome
 
-[index]                 # Subplot
-name = Jiahao           # Variable setting
+[index]                 # New label, do NOT leave blank lines between label and content
+name = John             # Assign variable
 bg:bg.png               # Load background image
-music:bg.mp3            # Load music
-img:logo.png:2:50%      # Load character image (Position options are 1,2,3 corresponding to left, center, right, 50% refers to scale)
-System: Welcome to the ngal engine!     # Display text with character name
-System: Hello user:hello.mp3            # Display text with voice playback
-System: Current time $(date)            # Command execution function
-System: Current user $(whoami)
-System: Current directory $(pwd)
-System: From $(curl -s myip.ipip.net | grep -oE " From.*" | sed s/From//)
-img:                                    # Enter again to close the character image (same for music and background)
-System: Current default name: {name}    # {} calls a variable; in variable operations, {} is optional
-input: Please enter your name:name      # Read user input into variable
-{name}: My name is: {name}!             # Variables can also be used as character names
+System: Waiting for 2 seconds
+sleep:2                 # Pause execution for 2 seconds, auto continue afterwards
+System: 2 second wait finished.
+music:bg.mp3            # Play background music
+img:logo.png:2:50%      # Show portrait, position:1=left,2=center,3=right; scale:50%
+System: Welcome to ngal engine!
+System: Hello player:hello.mp3    # Dialogue with voice audio
+System: Current time $(date)
+System: User: $(whoami)\nDirectory: $(pwd)    # \n = line break
+img:logo2.png           # Switch portrait
+img:                    # Empty value hides portrait (same rule for bg / music)
+System: Default name: {name}   # Insert variable into text
+input:Enter your name:name     # Prompt user input and store result into variable
+{name}: My name is {name}!
 
-# Variable arithmetic
+# Variable calculation
 a = 13
 System: a = {a}
 b = 78
 System: b = {b}
-c = a + b               # Supports + - * /
-System: Result of addition: {c}
+c = a + b
+System: Sum result {c}
 
-System: Time for choices
+System: Make your choice
 score = 10
-System: Current score: {score}
-choose:Accept adventure(+8 score):accept|Refuse adventure(-5 score):refuse
+System: Current score {score}
+# Branch selection, separate options with |
+choose:Accept adventure (+8 score):accept|Refuse adventure (-5 score):refuse
 
 [accept]
 System: You accepted the adventure!
 score = score + 8
-System: Current score {score}
+System: Score {score}
 load:jx
 
 [refuse]
 System: You refused the adventure!
 score = score - 5
-System: Current score {score}
+System: Score {score}
 load:jx
 
 [jx]
-System: If condition demo
-if score >= 10: good_end # Jump if condition holds
-load:bad_end # Fall-through if condition fails
+System: Demonstrating if condition
+if score >= 10: good_end # Jump to label if condition matches
+load:bad_end # Runs if condition fails
 
 [good_end]
-System: Score is greater or equal to 10
-System: 🤓 Perfect ending! Score {score}
+end
+System: Your score is >=10
+System: 🤓 True End! Score {score}
 load:exit
 
 [bad_end]
-System: Score is less than 10
-System: 😭 Bad ending. Score {score}
+System: Score below 10
+System: 😭 Bad End. Score {score}
 load:exit
 
 [exit]
-System: Game over
-bg:    # Clear background
-music: # Stop music
-end    # Exit game
+System: Game finished
+bg:        # Clear background
+music:     # Stop music playback
+end        # Return to main menu
 ```
 
-### Command Reference
+### Command Reference Table
 
-| Command | Format | Description |
+|Command|Format|Description|
 |---|---|---|
-| Dialogue | `Speaker:text` | Show character dialogue |
-| Dialogue with voice | `Speaker:text:voice.mp3` | Voice files go to `assets/voices/` |
-| Narration | `Text content` | Text without speaker |
-| Variable assignment | `var = value` | Supports strings and numbers |
-| Variable calculation | `var = expression` | Supports `+ - * /` and parentheses |
-| User input | `input:prompt:var` | Read user input into variable |
-| Variable interpolation | `{var}` | Insert variable value into text |
-| Sprite | `img:file.png:position:scale%` | Position: 1-left, 2-center, 3-right |
-| Clear sprite | `img:` | Leave empty to remove sprite |
-| Background image | `bg:file.png` | Stretch to fill screen |
-| Clear background | `bg:` | Leave empty to remove background |
-| Background music | `music:file.mp3` | Place in `assets/music/` |
-| Stop music | `music:` | Leave empty to stop playback |
-| Branch choices | `choose:opt1:scene1\|opt2:scene2` | Separate options with vertical bar |
-| Conditional jump | `if condition:scene` | Supports `> < >= <= == !=` |
-| Scene jump | `load:scene` | Jump to named scene |
-| External scene jump | `load:file.ng:scene` | Load external script and jump |
-| Quit game | `end` | Return to main menu |
+|Dialogue|`Speaker:Text`|Show character dialogue|
+|Voice Dialogue|`Speaker:Text:voice.mp3`|Voice file stored in `assets/voices/`|
+|Narration|`Plain text`|Narrative text without speaker name|
+|Variable assign|`var = value`|Supports string and numeric values|
+|Variable math|`var = expression`|Supports `+ - * /` and parentheses|
+|User input|`input:prompt:var`|Read keyboard input into variable|
+|Variable insert|`{var}`|Embed variable value inside text content|
+|Portrait|`img:image.png:pos:scale%`|Position:1‑Left,2‑Center,3‑Right|
+|Clear portrait|`img:`|Empty argument removes portrait|
+|Background|`bg:image.png`|Image stretched to fill terminal|
+|Clear background|`bg:`|Remove background|
+|Sleep / wait|`sleep:0.5`|Pause script execution for seconds|
+|BGM|`music:audio.mp3`|Audio file stored in `assets/music/`|
+|Stop BGM|`music:`|Stop background music|
+|Choice branch|`choose:opt1:label1|opt2:label2`|Separate multiple options with `|`|
+|Conditional jump|`if condition:label`|Operators: `> < >= <= == !=`|
+|Jump label|`load:label`|Jump to label inside current script|
+|External jump|`load:file.ng:label`|Load another script file and jump|
+|Exit game|`end`|Return to main menu|
 
 ### ⌨️ Key Bindings
 
-| Key | Function |
+|Key|Action|
 |---|---|
-| Space / Enter | Advance dialogue / confirm choice |
-| ↑ / ↓ | Navigate choices / scroll lists |
-| ESC | Go back / exit menu |
-| S | Save game |
-| L | Load game |
-| H | Show history log |
-| A | Toggle auto-play |
-| T | Toggle text animation |
-| 3 / 4 | Adjust text speed |
-| B | Cycle background color |
-| q | Return to menu / quit |
+|Space / Enter|Advance dialogue / Confirm selection|
+|↑ / ↓|Navigate options / Scroll history|
+|ESC|Back / Open menu|
+|S|Save progress|
+|L|Load save|
+|H|Show dialogue history|
+|A|Toggle auto‑play mode|
+|T|Toggle typewriter animation|
+|3 / 4|Adjust text display speed|
+|B|Cycle through background colors|
+|q|Return to menu / Quit|
 
-Editor keys
-Type h in the editor interface to view
+Editor keys:
+Type `h` inside editor to view help
 
 ## 📜 Dependencies
+
 - **mpv** — Required for audio playback
 - Rust 1.70+
 
 ## 📄 License
+
 MIT

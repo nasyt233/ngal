@@ -6,24 +6,39 @@ use super::Editor;
 
 impl Editor {
     pub(crate) fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-            return;
+        // 滚轮事件
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                self.handle_scroll(-1);
+                return;
+            }
+            MouseEventKind::ScrollDown => {
+                self.handle_scroll(1);
+                return;
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                // 继续走点击处理
+            }
+            _ => return,
         }
 
         let col = mouse.column;
         let row = mouse.row;
 
-        // 帮助弹窗打开时，任意点击关闭
         if self.show_help {
             self.show_help = false;
             return;
         }
 
-        // 统计弹窗：任意点击关闭
         if matches!(self.mode, EditorMode::ShowStats) {
             self.pending_stats = None;
             self.mode = EditorMode::Normal;
             return;
+        }
+
+        // 补全激活时点击任何地方关闭
+        if self.completion_active {
+            self.completion_active = false;
         }
 
         match &self.mode {
@@ -34,18 +49,62 @@ impl Editor {
         }
     }
 
+    fn handle_scroll(&mut self, delta: i32) {
+        match &self.mode {
+            EditorMode::Normal | EditorMode::DirectEdit | EditorMode::FileListFocus => {
+                if delta < 0 {
+                    self.content_scroll = self.content_scroll.saturating_sub((-delta) as u16);
+                } else {
+                    let max = self.content.len().saturating_sub(1) as u16;
+                    self.content_scroll = (self.content_scroll + delta as u16).min(max);
+                }
+            }
+            EditorMode::FilePicker => {
+                if delta < 0 {
+                    if self.picker_selected > 0 {
+                        self.picker_selected -= 1;
+                    }
+                } else if !self.picker_files.is_empty()
+                    && self.picker_selected < self.picker_files.len() - 1
+                {
+                    self.picker_selected += 1;
+                }
+            }
+            EditorMode::ScenePicker => {
+                if delta < 0 {
+                    if self.scene_selected > 0 {
+                        self.scene_selected -= 1;
+                    }
+                } else if !self.scene_list.is_empty()
+                    && self.scene_selected < self.scene_list.len() - 1
+                {
+                    self.scene_selected += 1;
+                }
+            }
+            EditorMode::CharacterPicker => {
+                if delta < 0 {
+                    if self.character_selected > 0 {
+                        self.character_selected -= 1;
+                    }
+                } else if !self.character_list.is_empty()
+                    && self.character_selected < self.character_list.len() - 1
+                {
+                    self.character_selected += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn handle_mouse_normal(&mut self, col: u16, row: u16) {
-        // 点击功能菜单
         if self.contains(self.menu_area, col, row) {
             let inner_y = self.menu_area.y + 1;
             if row >= inner_y {
                 let idx = (row - inner_y) as usize;
                 if idx < MENU_ITEMS.len() && MENU_ITEMS[idx] != "────────────────" {
                     if idx == self.sidebar_selected {
-                        // 已在选中项上 → 执行
                         self.execute_menu_item();
                     } else {
-                        // 切换选中（需要再次点击才执行）
                         self.sidebar_selected = idx;
                         self.sidebar_state.select(Some(idx));
                     }
@@ -54,7 +113,6 @@ impl Editor {
             return;
         }
 
-        // 点击剧情文件列表
         if self.contains(self.file_list_area, col, row) {
             let inner_y = self.file_list_area.y + 1;
             if row >= inner_y {
@@ -68,7 +126,6 @@ impl Editor {
             return;
         }
 
-        // 点击右侧内容区
         if self.contains(self.content_area, col, row) {
             let inner_y = self.content_area.y + 1;
             if row >= inner_y {
@@ -89,12 +146,10 @@ impl Editor {
                 let idx = (row - inner_y) as usize;
                 if idx < self.story_files.len() {
                     if idx == self.story_selected {
-                        // 已在选中项上 → 打开文件
                         if let Some(filename) = self.story_files.get(idx).cloned() {
                             self.switch_to_file(&filename);
                         }
                     } else {
-                        // 切换选中
                         self.story_selected = idx;
                         self.story_state.select(Some(idx));
                     }
@@ -122,7 +177,6 @@ impl Editor {
     }
 
     fn handle_mouse_edit(&mut self, col: u16, row: u16) {
-        // 编辑模式下点击左侧，切换到相应焦点
         if self.contains(self.menu_area, col, row) {
             self.mode = EditorMode::Normal;
             let inner_y = self.menu_area.y + 1;
@@ -153,7 +207,6 @@ impl Editor {
             return;
         }
 
-        // 点击内容区：定位光标
         if self.contains(self.content_area, col, row) {
             let inner_y = self.content_area.y + 1;
             let inner_x = self.content_area.x + 1;

@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use super::state::{
-    EditorMode, FileNameAction, C_ACCENT, C_BG, C_BG_ALT, C_BLUE, C_BORDER_DIM,
+    CompletionKind, EditorMode, FileNameAction, C_ACCENT, C_BG, C_BG_ALT, C_BLUE, C_BORDER_DIM,
     C_BORDER_FOCUS, C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW, MENU_ITEMS,
 };
 use super::syntax::{highlight_line, highlight_line_with_cursor};
@@ -66,6 +66,7 @@ impl Editor {
             EditorMode::Input => "输入",
             EditorMode::FilePicker => "选择文件",
             EditorMode::ScenePicker => "选择场景",
+            EditorMode::CharacterPicker => "选择角色",
             EditorMode::ConfirmDelete => "确认删除",
             EditorMode::FileNameInput { .. } => "文件名",
             EditorMode::Shell { .. } => "终端",
@@ -113,6 +114,8 @@ impl Editor {
                         "打包游戏" => C_BLUE,
                         "保存文件" => C_YELLOW,
                         "命令执行" => C_ACCENT,
+                        "插入输入" => C_GREEN,
+                        "插入等待" => C_ACCENT,
                         "退出" => C_RED,
                         "撤销 (Ctrl+Z)" => C_PINK,
                         _ => Color::White,
@@ -341,7 +344,7 @@ impl Editor {
         let (status_text, status_style, status_border) = match self.mode {
             EditorMode::Normal => {
                 let text = self.status_message.clone().unwrap_or_else(|| {
-                    " hjkl/↑↓菜单 │ ←→内容 │ Enter确认 │ i编辑 │ Tab文件 │ x/c/v │ h帮助 │ q退出"
+                    " hjkl/↑↓菜单 │ ←→内容 │ Enter确认 │ 空格换行 │ i编辑 │ Tab文件 │ x/c/v │ h帮助 │ q退出"
                         .to_string()
                 });
                 (format!(" {}", text), Style::default().fg(C_GRAY), C_BORDER_DIM)
@@ -359,18 +362,23 @@ impl Editor {
                 C_GREEN,
             ),
             EditorMode::FilePicker => (
-                " ↑↓/jk选择文件 │ Home/End首尾 │ Enter确认 │ ESC取消".to_string(),
+                " 输入搜索 │ ↑↓进入列表 │ Enter确认 │ ESC取消".to_string(),
                 Style::default().fg(C_BLUE),
                 C_BLUE,
             ),
             EditorMode::ScenePicker => (
-                " ↑↓/jk选择场景 │ Home/End首尾 │ Enter确认 │ ESC取消".to_string(),
+                " 输入搜索 │ ↑↓进入列表 │ Enter确认 │ ESC取消".to_string(),
                 Style::default().fg(C_ACCENT),
                 C_ACCENT,
             ),
+            EditorMode::CharacterPicker => (
+                " ↑↓/jk选择角色 │ Enter确认 │ ESC取消".to_string(),
+                Style::default().fg(C_PINK),
+                C_PINK,
+            ),
             EditorMode::DirectEdit => {
                 let text = self.status_message.clone().unwrap_or_else(|| {
-                    " 编辑中 │ 方向键移动 │ Home/End │ F5测试 │ Ctrl+S保存 │ Ctrl+Z撤销 │ Tab/ESC退出"
+                    " 编辑中 │ 打字触发补全 │ Tab/Enter 选择 │ ESC 关闭补全 │ Ctrl+S 保存 │ F5 测试"
                         .to_string()
                 });
                 (format!(" {}", text), Style::default().fg(C_GREEN), C_GREEN)
@@ -409,13 +417,90 @@ impl Editor {
 
         self.render_file_picker(frame, area);
         self.render_scene_picker(frame, area);
+        self.render_character_picker(frame, area);
         self.render_confirm_delete(frame, area);
         self.render_file_name_input(frame, area);
         self.render_shell(frame, area);
         self.render_stats(frame, area);
         self.render_help(frame, area);
+        self.render_completion(frame, area);
     }
 
+    // ============================================================
+    // 命令补全弹窗
+    // ============================================================
+    fn render_completion(&self, frame: &mut Frame, area: Rect) {
+        if !self.completion_active || self.completion_items.is_empty() {
+            return;
+        }
+
+        let inner = self.content_area;
+        let popup_w = 46u16.min(inner.width.max(20));
+        let popup_h = (self.completion_items.len() as u16 + 2).min(12);
+
+        // 定位：内容区右上角向内偏移
+        let popup_x = inner
+            .x
+            .saturating_add(inner.width.saturating_sub(popup_w + 2));
+        let popup_y = inner.y + 1;
+
+        let popup_area = Rect {
+            x: popup_x.min(area.width.saturating_sub(popup_w)),
+            y: popup_y.min(area.height.saturating_sub(popup_h)),
+            width: popup_w,
+            height: popup_h,
+        };
+
+        frame.render_widget(Clear, popup_area);
+
+        let items: Vec<ListItem> = self
+            .completion_items
+            .iter()
+            .map(|item| {
+                let kind_hint = match item.kind {
+                    CompletionKind::Insert => "",
+                    CompletionKind::FilePicker(_) => " [文件]",
+                    CompletionKind::ScenePicker => " [场景]",
+                    CompletionKind::CharacterPicker => " [角色]",
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!(" {:<10}", item.label),
+                        Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{}{}", item.desc, kind_hint),
+                        Style::default().fg(C_GRAY),
+                    ),
+                ]))
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Double)
+                    .title(format!(" ◆ 补全: {} ", self.completion_query))
+                    .border_style(Style::default().fg(C_GREEN))
+                    .style(Style::default().bg(C_BG_ALT)),
+            )
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(C_GREEN)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▶");
+
+        let mut state = ListState::default();
+        state.select(Some(self.completion_selected));
+        frame.render_stateful_widget(list, popup_area, &mut state);
+    }
+
+    // ============================================================
+    // 文件选择器（带搜索）
+    // ============================================================
     fn render_file_picker(&self, frame: &mut Frame, area: Rect) {
         if !matches!(self.mode, EditorMode::FilePicker) {
             return;
@@ -423,9 +508,37 @@ impl Editor {
         let popup_area = centered_rect(60, 60, area);
         frame.render_widget(Clear, popup_area);
 
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)])
+            .split(popup_area);
+
+        // 搜索栏
+        let cursor = if self.picker_focused { "█" } else { "" };
+        let search_text = format!(" 🔍 {}{}", self.picker_query, cursor);
+        let search_style = if self.picker_focused {
+            Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(C_GRAY)
+        };
+        let search_para = Paragraph::new(search_text).style(search_style).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(" 搜索 (↑↓ 进入列表) ")
+                .border_style(if self.picker_focused {
+                    Style::default().fg(C_GREEN)
+                } else {
+                    Style::default().fg(C_BORDER_DIM)
+                })
+                .style(Style::default().bg(C_BG_ALT)),
+        );
+        frame.render_widget(search_para, chunks[0]);
+
+        // 列表
         let items: Vec<ListItem> = if self.picker_files.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
-                "  (目录为空，按 ESC 返回)",
+                "  (无匹配文件)",
                 Style::default().fg(C_GRAY),
             )))]
         } else {
@@ -456,9 +569,12 @@ impl Editor {
         if !self.picker_files.is_empty() {
             list_state.select(Some(self.picker_selected));
         }
-        frame.render_stateful_widget(list, popup_area, &mut list_state);
+        frame.render_stateful_widget(list, chunks[1], &mut list_state);
     }
 
+    // ============================================================
+    // 场景选择器（带搜索）
+    // ============================================================
     fn render_scene_picker(&self, frame: &mut Frame, area: Rect) {
         if !matches!(self.mode, EditorMode::ScenePicker) {
             return;
@@ -466,9 +582,37 @@ impl Editor {
         let popup_area = centered_rect(70, 70, area);
         frame.render_widget(Clear, popup_area);
 
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)])
+            .split(popup_area);
+
+        // 搜索栏
+        let cursor = if self.scene_focused { "█" } else { "" };
+        let search_text = format!(" 🔍 {}{}", self.scene_query, cursor);
+        let search_style = if self.scene_focused {
+            Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(C_GRAY)
+        };
+        let search_para = Paragraph::new(search_text).style(search_style).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(" 搜索 (↑↓ 进入列表) ")
+                .border_style(if self.scene_focused {
+                    Style::default().fg(C_GREEN)
+                } else {
+                    Style::default().fg(C_BORDER_DIM)
+                })
+                .style(Style::default().bg(C_BG_ALT)),
+        );
+        frame.render_widget(search_para, chunks[0]);
+
+        // 列表
         let items: Vec<ListItem> = if self.scene_list.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
-                "  (没有找到场景，请检查 assets/dialog/)",
+                "  (没有找到场景)",
                 Style::default().fg(C_GRAY),
             )))]
         } else {
@@ -507,9 +651,61 @@ impl Editor {
         if !self.scene_list.is_empty() {
             list_state.select(Some(self.scene_selected));
         }
+        frame.render_stateful_widget(list, chunks[1], &mut list_state);
+    }
+
+    // ============================================================
+    // 角色选择器
+    // ============================================================
+    fn render_character_picker(&self, frame: &mut Frame, area: Rect) {
+        if !matches!(self.mode, EditorMode::CharacterPicker) {
+            return;
+        }
+        let popup_area = centered_rect(60, 60, area);
+        frame.render_widget(Clear, popup_area);
+
+        let items: Vec<ListItem> = self
+            .character_list
+            .iter()
+            .map(|c| match c {
+                None => ListItem::new(Line::from(Span::styled(
+                    " ✎ 自定义（手动输入）",
+                    Style::default().fg(C_ACCENT),
+                ))),
+                Some(name) => ListItem::new(Line::from(Span::styled(
+                    format!(" {}", name),
+                    Style::default().fg(Color::White),
+                ))),
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Double)
+                    .title(format!(" ◆ {} ", self.character_title))
+                    .border_style(Style::default().fg(C_PINK))
+                    .style(Style::default().bg(C_BG_ALT)),
+            )
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(C_PINK)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▶ ");
+
+        let mut list_state = ListState::default();
+        if !self.character_list.is_empty() {
+            list_state.select(Some(self.character_selected));
+        }
         frame.render_stateful_widget(list, popup_area, &mut list_state);
     }
 
+    // ============================================================
+    // 删除确认
+    // ============================================================
     fn render_confirm_delete(&self, frame: &mut Frame, area: Rect) {
         if !matches!(self.mode, EditorMode::ConfirmDelete) {
             return;
@@ -561,6 +757,9 @@ impl Editor {
         frame.render_widget(para, popup_area);
     }
 
+    // ============================================================
+    // 文件名输入
+    // ============================================================
     fn render_file_name_input(&self, frame: &mut Frame, area: Rect) {
         let (action, buffer) = match &self.mode {
             EditorMode::FileNameInput { action, buffer } => (action, buffer),
@@ -611,6 +810,9 @@ impl Editor {
         frame.render_widget(para, popup_area);
     }
 
+    // ============================================================
+    // 内嵌终端
+    // ============================================================
     fn render_shell(&self, frame: &mut Frame, area: Rect) {
         let (buffer, output) = match &self.mode {
             EditorMode::Shell { buffer, output } => (buffer, output),
@@ -682,6 +884,9 @@ impl Editor {
         frame.render_widget(in_para, in_area);
     }
 
+    // ============================================================
+    // 项目统计
+    // ============================================================
     fn render_stats(&self, frame: &mut Frame, area: Rect) {
         let info = match &self.pending_stats {
             Some(i) => i,
@@ -764,7 +969,6 @@ impl Editor {
             ]),
         ];
 
-        // 缺失资源
         let has_missing = !info.missing_images.is_empty()
             || !info.missing_music.is_empty()
             || !info.missing_voices.is_empty();
@@ -838,6 +1042,9 @@ impl Editor {
         frame.render_widget(para, popup_area);
     }
 
+    // ============================================================
+    // 快捷键帮助
+    // ============================================================
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         if !self.show_help {
             return;
@@ -859,7 +1066,9 @@ impl Editor {
             Line::from("  ←/→          内容区光标上/下"),
             Line::from("  Home/End     跳到菜单首/尾"),
             Line::from("  PgUp/PgDn    内容区快速跳转"),
+            Line::from("  鼠标滚轮     滚动内容区"),
             Line::from("  Enter        执行选中功能"),
+            Line::from("  空格         在光标处换行"),
             Line::from("  i            进入右侧编辑模式"),
             Line::from("  h            显示本帮助"),
             Line::from("  x/c/v        剪切/复制/粘贴行"),
@@ -898,9 +1107,38 @@ impl Editor {
             Line::from("  Tab/ESC      退出编辑"),
             Line::from(""),
             Line::from(Span::styled(
+                " ◆ 命令补全 ",
+                Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  打字         自动弹出匹配的命令"),
+            Line::from("               (如 inp → input:)"),
+            Line::from("  Tab/Enter    接受选中项"),
+            Line::from("  ↑↓           在补全列表中移动"),
+            Line::from("  ESC          关闭补全框"),
+            Line::from("  唯一匹配     自动填入，无需选择"),
+            Line::from(""),
+            Line::from(Span::styled(
+                " ◆ 自动配对 ",
+                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  \" ' { [ ( <   输入时自动补右半边"),
+            Line::from("  $()          在 input 中可直接用"),
+            Line::from(""),
+            Line::from(Span::styled(
+                " ◆ 选择器 (文件/场景/角色) ",
+                Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  打字         搜索过滤"),
+            Line::from("  ↑↓           从搜索栏进入列表"),
+            Line::from("  鼠标滚轮     滚动列表"),
+            Line::from("  Enter        确认选择"),
+            Line::from("  ESC          取消"),
+            Line::from(""),
+            Line::from(Span::styled(
                 " ◆ 鼠标操作 ",
                 Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD),
             )),
+            Line::from("  滚轮         滚动内容 / 列表"),
             Line::from("  第一次点击   切换焦点/选中"),
             Line::from("  再次点击     执行 / 打开"),
             Line::from(""),

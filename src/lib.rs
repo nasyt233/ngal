@@ -13,3 +13,4 @@ pub mod ui;
 pub mod commands;
 pub mod runner;
 pub mod edit;
+pub mod scanner;
