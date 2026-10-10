@@ -49,17 +49,35 @@ impl App {
     // ==================== 文字动画 ====================
 
     pub fn update_animation(&mut self) {
+        // ---------- GIF 帧推进 ----------
+        if let Some(gif) = &mut self.current_image_gif {
+            gif.tick();
+        }
+        if let Some(gif) = &mut self.current_background_gif {
+            gif.tick();
+        }
+        if let Some(gif) = &mut self.logo_gif {
+            gif.tick();
+        }
+        if let Some(gif) = &mut self.menu_image_gif {
+            gif.tick();
+        }
+        if let Some(g) = &mut self.gallery {
+            g.tick_gif();
+        }
+        
+        // ---------- 原有文字动画 ----------
         if !self.config.text_animation {
             if self.display_text != self.target_text {
                 self.display_text = self.target_text.clone();
             }
             return;
         }
-
+    
         if self.target_text.is_empty() {
             return;
         }
-
+    
         if self.display_text.len() < self.target_text.len() {
             let elapsed = self.last_char_time.elapsed();
             let speed = Duration::from_millis(self.config.text_speed);

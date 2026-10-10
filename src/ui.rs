@@ -88,6 +88,9 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
         crate::app::AppState::Menu => {
             render_menu(frame, inner, app, bg_color);
         }
+        crate::app::AppState::Gallery => {
+            render_gallery(frame, inner, app, bg_color);
+        }
         crate::app::AppState::Settings => {
             let text = vec![
                 Line::from(vec![Span::styled(
@@ -461,14 +464,26 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
             frame.render_widget(para, para_area);
         }
         crate::app::AppState::InDialogue { .. } => {
-            if let Some(bg_filename) = &app.current_background {
+            // ---------- 背景（GIF 优先） ----------
+            if let Some(gif) = &app.current_background_gif {
+                if let Some(img) = gif.current_frame() {
+                    crate::image::draw_background(frame, inner, img);
+                }
+            } else if let Some(bg_filename) = &app.current_background {
                 let bg_path = format!("assets/portraits/{}", bg_filename);
                 if let Ok(bg_img) = crate::image::load_image_rgba(&bg_path) {
                     crate::image::draw_background(frame, inner, &bg_img);
                 }
             }
-
-            if let Some(params) = &app.current_image_params {
+        
+            // ---------- 立绘（GIF 优先） ----------
+            if let Some(gif) = &app.current_image_gif {
+                if let Some(img) = gif.current_frame() {
+                    if let Some(params) = &app.current_image_params {
+                        crate::image::draw_portrait(frame, inner, img, params.position, params.scale);
+                    }
+                }
+            } else if let Some(params) = &app.current_image_params {
                 if let Some(filename) = &params.filename {
                     let path = format!("assets/portraits/{}", filename);
                     match crate::image::load_image_rgba(&path) {
@@ -499,13 +514,28 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
         crate::app::AppState::InChoice {
             options, selected, ..
         } => {
-            if let Some(bg_filename) = &app.current_background {
+            // 背景（GIF 优先）
+            if let Some(gif) = &app.current_background_gif {
+                if let Some(img) = gif.current_frame() {
+                    crate::image::draw_background(frame, inner, img);
+                }
+            } else if let Some(bg_filename) = &app.current_background {
                 let bg_path = format!("assets/portraits/{}", bg_filename);
                 if let Ok(bg_img) = crate::image::load_image_rgba(&bg_path) {
                     crate::image::draw_background(frame, inner, &bg_img);
                 }
             }
-
+        
+            // 立绘（GIF 优先）
+            if let Some(gif) = &app.current_image_gif {
+                if let Some(img) = gif.current_frame() {
+                    if let Some(params) = &app.current_image_params {
+                        crate::image::draw_portrait(frame, inner, img, params.position, params.scale);
+                    }
+                }
+            }
+        
+            // 原有选项列表
             let items: Vec<ListItem> = options
                 .iter()
                 .enumerate()
@@ -520,11 +550,11 @@ fn render_top(frame: &mut Frame, area: Rect, app: &mut App) {
                     ListItem::new(Line::from(Span::styled(text, style.bg(bg_color))))
                 })
                 .collect();
-
+        
             let list = List::new(items)
                 .block(Block::default().title("请选择：").borders(Borders::NONE))
                 .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)));
-
+        
             let list_height = options.len() as u16 * 2;
             let list_area = Rect {
                 x: inner.x + (inner.width.saturating_sub(40)) / 2,
@@ -594,30 +624,6 @@ fn render_menu(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: Color) {
     frame.render_widget(version_para, version_area);
 }
 
-/// 构建菜单列表（供所有布局复用）
-fn build_menu_list<'a>(app: &App, bg_color: Color, _width: u16) -> List<'a> {
-    let items: Vec<ListItem> = app
-        .menu_options
-        .iter()
-        .enumerate()
-        .map(|(i, text)| {
-            let style = if i == app.selected {
-                Style::default()
-                    .fg(Color::Rgb(255, 255, 0))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Rgb(200, 200, 200))
-            };
-            ListItem::new(Line::from(Span::styled(text.clone(), style.bg(bg_color))))
-        })
-        .collect();
-
-    List::new(items)
-        .block(Block::default().borders(Borders::NONE))
-        .highlight_style(Style::default().fg(Color::Rgb(255, 255, 0)))
-        .style(Style::default().bg(bg_color))
-}
-
 /// 构建标题段落
 fn build_title_lines(app: &App) -> Paragraph<'static> {
     let title = app.title.clone();
@@ -648,12 +654,30 @@ fn build_title_lines(app: &App) -> Paragraph<'static> {
     .alignment(Alignment::Center)
 }
 
+/// 获取 logo 当前帧（GIF 优先，回退静态图）
+fn logo_frame(app: &App) -> Option<&crate::image::RgbaImage> {
+    if let Some(gif) = &app.logo_gif {
+        gif.current_frame()
+    } else {
+        app.logo.as_ref()
+    }
+}
+
+/// 获取主菜单图片当前帧（GIF 优先，回退静态图）
+fn menu_image_frame(app: &App) -> Option<&crate::image::RgbaImage> {
+    if let Some(gif) = &app.menu_image_gif {
+        gif.current_frame()
+    } else {
+        app.menu_image.as_ref()
+    }
+}
+
 // ==================== 布局 1：默认（logo 上方 + 左菜单卡片右图片） ====================
 fn render_menu_layout1(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: Color) {
     let mut y_offset = 0u16;
 
     // ---------- 顶部 Logo ----------
-    if let Some(img) = &app.logo {
+    if let Some(img) = logo_frame(app) {
         let logo_height = 6u16.min(inner.height / 4);
         let logo_area = Rect {
             x: inner.x,
@@ -702,7 +726,8 @@ fn render_menu_layout1(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
     // ---------- 菜单 + 图片 ----------
     let remaining_height = inner.height.saturating_sub(y_offset);
 
-    let (menu_area, image_area) = if app.menu_image.is_some() {
+    let has_menu_image = app.menu_image.is_some() || app.menu_image_gif.is_some();
+    let (menu_area, image_area) = if has_menu_image {
         let split = Layout::horizontal([
             Constraint::Percentage(50),
             Constraint::Percentage(50),
@@ -806,7 +831,7 @@ fn render_menu_layout1(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
     }
 
     // ---------- 右侧图片 ----------
-    if let Some(img) = &app.menu_image {
+    if let Some(img) = menu_image_frame(app) {
         if let Some(img_area) = image_area {
             let padded = Rect {
                 x: img_area.x + 1,
@@ -822,15 +847,18 @@ fn render_menu_layout1(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
 // ==================== 布局 2：全屏背景 + 居中卡片菜单 ====================
 fn render_menu_layout2(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: Color) {
     // 全屏背景图
-    if let Some(img) = &app.menu_image {
+    if let Some(img) = menu_image_frame(app) {
         crate::image::draw_background(frame, inner, img);
-    } else if let Some(img) = &app.logo {
+    } else if let Some(img) = logo_frame(app) {
         crate::image::draw_background(frame, inner, img);
     }
 
-    // 居中卡片
-    let card_w = 36u16.min(inner.width);
-    let card_h = (app.menu_options.len() as u16 * 2 + 8).min(inner.height);
+    // 卡片尺寸
+    let item_h = 1u16;
+    let content_h = app.menu_options.len() as u16 * item_h;
+    let card_w = 30u16.min(inner.width);
+    let card_h = (content_h + 9).min(inner.height); // 标题3 + 分隔1 + 空1 + 菜单 + 空1 + 边框2
+
     let card = Rect {
         x: inner.x + (inner.width.saturating_sub(card_w)) / 2,
         y: inner.y + (inner.height.saturating_sub(card_h)) / 2,
@@ -840,12 +868,30 @@ fn render_menu_layout2(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
 
     frame.render_widget(ratatui::widgets::Clear, card);
 
+    // 卡片外框（圆角）
     let card_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Double)
-        .border_style(Style::default().fg(Color::Rgb(212, 112, 212)))
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Rgb(180, 130, 220)))
         .style(Style::default().bg(bg_color));
     frame.render_widget(card_block, card);
+
+    // 四角星装饰
+    let corners = [
+        (card.x, card.y),
+        (card.x + card.width - 1, card.y),
+        (card.x, card.y + card.height - 1),
+        (card.x + card.width - 1, card.y + card.height - 1),
+    ];
+    {
+        let buf = frame.buffer_mut();
+        for (x, y) in corners {
+            let cell = buf.get_mut(x, y);
+            cell.set_char('✦')
+                .set_fg(Color::Rgb(255, 215, 0))
+                .set_style(Style::default().add_modifier(Modifier::BOLD));
+        }
+    }
 
     let inner_card = Rect {
         x: card.x + 1,
@@ -854,7 +900,7 @@ fn render_menu_layout2(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
         height: card.height.saturating_sub(2),
     };
 
-    // 标题在卡片内顶部
+    // 标题
     let title = build_title_lines(app).style(Style::default().bg(bg_color));
     frame.render_widget(
         title,
@@ -862,20 +908,74 @@ fn render_menu_layout2(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
             x: inner_card.x,
             y: inner_card.y,
             width: inner_card.width,
-            height: 3,
+            height: 3.min(inner_card.height),
         },
     );
 
-    // 菜单
-    let list = build_menu_list(app, bg_color, inner_card.width);
-    let list_height = app.menu_options.len() as u16 * 2;
-    let list_area = Rect {
-        x: inner_card.x + (inner_card.width.saturating_sub(28)) / 2,
-        y: inner_card.y + 3 + (inner_card.height.saturating_sub(3 + list_height)) / 2,
-        width: 28.min(inner_card.width),
-        height: list_height.min(inner_card.height.saturating_sub(3)),
-    };
-    frame.render_widget(list, list_area);
+    // 分隔线
+    let divider = Paragraph::new("❖ ────── ❖")
+        .style(Style::default().fg(Color::Rgb(140, 90, 180)).bg(bg_color))
+        .alignment(Alignment::Center);
+    frame.render_widget(
+        divider,
+        Rect {
+            x: inner_card.x,
+            y: inner_card.y + 3,
+            width: inner_card.width,
+            height: 1,
+        },
+    );
+
+    // 菜单：逐行渲染，选中加金色背景条
+    let menu_top = inner_card.y + 4;
+    let menu_w = inner_card.width.saturating_sub(2);
+    let menu_x = inner_card.x + (inner_card.width.saturating_sub(menu_w)) / 2;
+
+    for (i, text) in app.menu_options.iter().enumerate() {
+        let y = menu_top + i as u16;
+        if y >= inner_card.y + inner_card.height {
+            break;
+        }
+        let is_sel = i == app.selected;
+
+        if is_sel {
+            let bar = Rect {
+                x: menu_x,
+                y,
+                width: menu_w,
+                height: 1,
+            };
+            frame.render_widget(
+                Block::default().style(Style::default().bg(Color::Rgb(255, 210, 100))),
+                bar,
+            );
+        }
+
+        let (label, style) = if is_sel {
+            (
+                format!(" ▶ {} ", text),
+                Style::default()
+                    .fg(Color::Rgb(30, 20, 40))
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (
+                format!("   {} ", text),
+                Style::default().fg(Color::Rgb(210, 210, 230)),
+            )
+        };
+
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(label, style)))
+                .alignment(Alignment::Center),
+            Rect {
+                x: menu_x,
+                y,
+                width: menu_w,
+                height: 1,
+            },
+        );
+    }
 }
 
 // ==================== 布局 3：左图右菜单 ====================
@@ -889,96 +989,211 @@ fn render_menu_layout3(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
     let left = split[0];
     let right = split[1];
 
-    // 左侧图片（优先 menu_image，其次 logo）
-    if let Some(img) = &app.menu_image {
-        crate::image::draw_portrait(frame, left, img, 2, 100);
-    } else if let Some(img) = &app.logo {
-        crate::image::draw_portrait(frame, left, img, 2, 100);
+    // 左侧图片放进圆角边框
+    let left_padded = Rect {
+        x: left.x + 1,
+        y: left.y + 1,
+        width: left.width.saturating_sub(2),
+        height: left.height.saturating_sub(2),
+    };
+
+    let left_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Rgb(140, 90, 180)))
+        .style(Style::default().bg(bg_color));
+    frame.render_widget(left_block, left);
+
+    let left_inner = Rect {
+        x: left_padded.x + 1,
+        y: left_padded.y + 1,
+        width: left_padded.width.saturating_sub(2),
+        height: left_padded.height.saturating_sub(2),
+    };
+
+    if let Some(img) = menu_image_frame(app) {
+        crate::image::draw_portrait(frame, left_inner, img, 2, 100);
+    } else if let Some(img) = logo_frame(app) {
+        crate::image::draw_portrait(frame, left_inner, img, 2, 100);
     }
 
-    // 右侧标题 + 菜单
+    // 右侧：标题 + 分隔线 + 菜单
     let title = build_title_lines(app).style(Style::default().bg(bg_color));
     frame.render_widget(
         title,
         Rect {
             x: right.x,
-            y: right.y + 2,
+            y: right.y + 1,
             width: right.width,
-            height: 4,
+            height: 3.min(right.height),
         },
     );
 
-    let list = build_menu_list(app, bg_color, right.width);
-    let list_height = app.menu_options.len() as u16 * 2;
-    let list_area = Rect {
-        x: right.x + (right.width.saturating_sub(30)) / 2,
-        y: right.y + 6 + (right.height.saturating_sub(6 + list_height)) / 2,
-        width: 30.min(right.width),
-        height: list_height.min(right.height.saturating_sub(6)),
-    };
-    frame.render_widget(list, list_area);
+    let divider = Paragraph::new("❖ ────── ❖")
+        .style(Style::default().fg(Color::Rgb(140, 90, 180)).bg(bg_color))
+        .alignment(Alignment::Center);
+    frame.render_widget(
+        divider,
+        Rect {
+            x: right.x,
+            y: right.y + 4,
+            width: right.width,
+            height: 1,
+        },
+    );
+
+    // 菜单
+    let menu_w = 26u16.min(right.width.saturating_sub(4));
+    let menu_x = right.x + (right.width.saturating_sub(menu_w)) / 2;
+    let menu_top = right.y + 6;
+    let menu_bottom = right.y + right.height.saturating_sub(2);
+    let total_h = app.menu_options.len() as u16;
+    let start_y = menu_top + menu_bottom.saturating_sub(menu_top).saturating_sub(total_h) / 2;
+
+    for (i, text) in app.menu_options.iter().enumerate() {
+        let y = start_y + i as u16;
+        if y >= menu_bottom {
+            break;
+        }
+        let is_sel = i == app.selected;
+
+        if is_sel {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(Color::Rgb(255, 210, 100))),
+                Rect {
+                    x: menu_x,
+                    y,
+                    width: menu_w,
+                    height: 1,
+                },
+            );
+        }
+
+        let (label, style) = if is_sel {
+            (
+                format!(" ▶ {} ", text),
+                Style::default()
+                    .fg(Color::Rgb(30, 20, 40))
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (
+                format!("   {} ", text),
+                Style::default().fg(Color::Rgb(210, 210, 230)),
+            )
+        };
+
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(label, style)))
+                .alignment(Alignment::Center),
+            Rect {
+                x: menu_x,
+                y,
+                width: menu_w,
+                height: 1,
+            },
+        );
+    }
 }
 
 // ==================== 布局 4：顶部大图 + 底部横排菜单 ====================
 fn render_menu_layout4(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: Color) {
     let split = Layout::vertical([
-        Constraint::Percentage(60),
-        Constraint::Percentage(40),
+        Constraint::Percentage(55),
+        Constraint::Percentage(45),
     ])
     .split(inner);
 
     let top = split[0];
     let bottom = split[1];
 
-    // 顶部图片（全屏拉伸）
-    if let Some(img) = &app.menu_image {
-        crate::image::draw_background(frame, top, img);
-    } else if let Some(img) = &app.logo {
-        crate::image::draw_background(frame, top, img);
+    // 顶部图片放进圆角边框
+    let top_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Rgb(140, 90, 180)))
+        .style(Style::default().bg(bg_color));
+    frame.render_widget(top_block, top);
+
+    let top_inner = Rect {
+        x: top.x + 1,
+        y: top.y + 1,
+        width: top.width.saturating_sub(2),
+        height: top.height.saturating_sub(2),
+    };
+
+    if let Some(img) = menu_image_frame(app) {
+        crate::image::draw_background(frame, top_inner, img);
+    } else if let Some(img) = logo_frame(app) {
+        crate::image::draw_background(frame, top_inner, img);
     }
 
-    // 底部：标题在上，菜单横向排列
+    // 底部：标题 + 分隔线 + 横排菜单
     let title = build_title_lines(app).style(Style::default().bg(bg_color));
     frame.render_widget(
         title,
         Rect {
             x: bottom.x,
-            y: bottom.y,
+            y: bottom.y + 1,
             width: bottom.width,
-            height: 4.min(bottom.height),
+            height: 3.min(bottom.height),
         },
     );
 
-    // 横排菜单
-    let menu_line = app
-        .menu_options
-        .iter()
-        .enumerate()
-        .fold(String::new(), |acc, (i, txt)| {
-            let marker = if i == app.selected { "▶ " } else { "  " };
-            if acc.is_empty() {
-                format!("{}{}", marker, txt)
-            } else {
-                format!("{}   {}{}", acc, marker, txt)
-            }
-        });
-
-    let menu_para = Paragraph::new(menu_line)
-        .style(Style::default().bg(bg_color))
+    let divider = Paragraph::new("❖ ────── ❖")
+        .style(Style::default().fg(Color::Rgb(140, 90, 180)).bg(bg_color))
         .alignment(Alignment::Center);
     frame.render_widget(
-        menu_para,
+        divider,
         Rect {
             x: bottom.x,
             y: bottom.y + 4,
             width: bottom.width,
-            height: 2,
+            height: 1,
+        },
+    );
+
+    // 横排菜单：每个选项用背景色块（选中金色）
+    let mut spans: Vec<Span> = Vec::new();
+    for (i, opt) in app.menu_options.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw(" "));
+        }
+        let is_sel = i == app.selected;
+        let (text, style) = if is_sel {
+            (
+                format!(" ▶ {} ", opt),
+                Style::default()
+                    .fg(Color::Rgb(30, 20, 40))
+                    .bg(Color::Rgb(255, 210, 100))
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (
+                format!("   {} ", opt),
+                Style::default().fg(Color::Rgb(200, 200, 220)),
+            )
+        };
+        spans.push(Span::styled(text, style));
+    }
+
+    let menu_line = Line::from(spans);
+    let menu_para = Paragraph::new(menu_line)
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(bg_color));
+    frame.render_widget(
+        menu_para,
+        Rect {
+            x: bottom.x,
+            y: bottom.y + 6,
+            width: bottom.width,
+            height: 1,
         },
     );
 
     // 底部操作提示
     let footer = Paragraph::new(app.footer.as_str())
-        .style(Style::default().fg(Color::Rgb(150, 150, 150)).bg(bg_color))
+        .style(Style::default().fg(Color::Rgb(130, 130, 150)).bg(bg_color))
         .alignment(Alignment::Center);
     frame.render_widget(
         footer,
@@ -997,18 +1212,18 @@ fn render_menu_layout5(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
     let title = Paragraph::new(vec![
         Line::from(""),
         Line::from(Span::styled(
-            "✨  N G A L  ✨",
+            "✨   N G A L   ✨",
             Style::default()
-                .fg(Color::Rgb(212, 112, 212))
+                .fg(Color::Rgb(230, 130, 220))
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
             app.title.clone(),
-            Style::default().fg(Color::Rgb(200, 100, 255)),
+            Style::default().fg(Color::Rgb(200, 180, 230)),
         )),
         Line::from(Span::styled(
             "Terminal Visual Novel Engine",
-            Style::default().fg(Color::Rgb(150, 150, 180)),
+            Style::default().fg(Color::Rgb(130, 130, 160)),
         )),
         Line::from(""),
     ])
@@ -1025,35 +1240,88 @@ fn render_menu_layout5(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: 
         },
     );
 
-    // 竖排大字菜单
-    let item_height = 2u16;
-    let total_height = app.menu_options.len() as u16 * item_height;
-    let start_y = inner.y + 8 + (inner.height.saturating_sub(8 + total_height)) / 2;
-
-    for (i, text) in app.menu_options.iter().enumerate() {
-        let marker = if i == app.selected { "▶  " } else { "    " };
-        let style = if i == app.selected {
-            Style::default()
-                .fg(Color::Rgb(255, 255, 0))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Rgb(180, 180, 200))
-        };
-        let line = Line::from(vec![
-            Span::styled(marker, style),
-            Span::styled(text.clone(), style),
-        ]);
-        let para = Paragraph::new(line)
-            .alignment(Alignment::Center)
-            .style(Style::default().bg(bg_color));
-        let item_area = Rect {
+    // 分隔线
+    let divider = Paragraph::new("❖ ────────── ❖")
+        .style(Style::default().fg(Color::Rgb(140, 90, 180)).bg(bg_color))
+        .alignment(Alignment::Center);
+    frame.render_widget(
+        divider,
+        Rect {
             x: inner.x,
-            y: start_y + i as u16 * item_height,
+            y: inner.y + 8,
             width: inner.width,
             height: 1,
+        },
+    );
+
+    // 竖排菜单
+    let item_h = 2u16;
+    let total_h = app.menu_options.len() as u16 * item_h;
+    let menu_top = inner.y + 10;
+    let available_h = inner.height.saturating_sub(10);
+    let start_y = menu_top + available_h.saturating_sub(total_h) / 2;
+
+    let menu_w = 22u16.min(inner.width);
+    let menu_x = inner.x + (inner.width.saturating_sub(menu_w)) / 2;
+
+    for (i, text) in app.menu_options.iter().enumerate() {
+        let y = start_y + i as u16 * item_h;
+        if y >= inner.y + inner.height {
+            break;
+        }
+        let is_sel = i == app.selected;
+
+        if is_sel {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(Color::Rgb(255, 210, 100))),
+                Rect {
+                    x: menu_x,
+                    y,
+                    width: menu_w,
+                    height: 1,
+                },
+            );
+        }
+
+        let (label, style) = if is_sel {
+            (
+                format!(" ▶ {} ", text),
+                Style::default()
+                    .fg(Color::Rgb(30, 20, 40))
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (
+                format!("   {} ", text),
+                Style::default().fg(Color::Rgb(200, 200, 220)),
+            )
         };
-        frame.render_widget(para, item_area);
+
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(label, style)))
+                .alignment(Alignment::Center),
+            Rect {
+                x: menu_x,
+                y,
+                width: menu_w,
+                height: 1,
+            },
+        );
     }
+
+    // 底部提示
+    let footer = Paragraph::new(app.footer.as_str())
+        .style(Style::default().fg(Color::Rgb(130, 130, 150)).bg(bg_color))
+        .alignment(Alignment::Center);
+    frame.render_widget(
+        footer,
+        Rect {
+            x: inner.x,
+            y: inner.y + inner.height.saturating_sub(2),
+            width: inner.width,
+            height: 1,
+        },
+    );
 }
 
 // ============================================================
@@ -1123,6 +1391,11 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
             "剧情已完结，按任意键返回".to_string(),
             app.status_message.as_deref(),
         ),
+        crate::app::AppState::Gallery => (
+            "鉴赏".to_string(),
+            "↑↓ 切换图片 │ PgUp/PgDn 翻页 │ Home/End 首尾 │ Esc/q 返回".to_string(),
+            app.status_message.as_deref(),
+        ),
     };
 
     let name_style = Style::default()
@@ -1155,4 +1428,233 @@ fn render_bottom(frame: &mut Frame, area: Rect, app: &App) {
                 .style(Style::default().bg(bg_color)),
         );
     frame.render_widget(text_para, text_area);
+}
+
+// ============================================================
+// 图片鉴赏
+// ============================================================
+
+fn render_gallery(frame: &mut Frame, inner: Rect, app: &mut App, bg_color: Color) {
+    let gallery = match &mut app.gallery {
+        Some(g) => g,
+        None => return,
+    };
+
+    // 垂直布局：标题 / 内容 / 信息栏
+    let chunks = Layout::vertical([
+        Constraint::Length(1), // 标题
+        Constraint::Min(0),    // 内容
+        Constraint::Length(1), // 信息
+    ])
+    .split(inner);
+
+    // ---------- 标题 ----------
+    let title = Line::from(vec![
+        Span::styled("🎨 ", Style::default().fg(Color::Rgb(255, 215, 0))),
+        Span::styled(
+            "图片鉴赏",
+            Style::default()
+                .fg(Color::Rgb(230, 130, 220))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("   共 {} 张", gallery.images.len()),
+            Style::default().fg(Color::Rgb(150, 150, 180)),
+        ),
+    ]);
+    frame.render_widget(
+        Paragraph::new(title).style(Style::default().bg(bg_color)),
+        chunks[0],
+    );
+
+    // ---------- 内容：左列表 右预览 ----------
+    let content = Layout::horizontal([
+        Constraint::Percentage(38),
+        Constraint::Percentage(62),
+    ])
+    .split(chunks[1]);
+
+    let list_area = content[0];
+    let preview_area = content[1];
+    gallery.list_area = list_area;
+
+    // ============ 左侧列表 ============
+    let items: Vec<ListItem> = gallery
+        .images
+        .iter()
+        .map(|entry| {
+            let icon = if entry.is_gif { "🎞" } else { "🖼" };
+            let icon_color = if entry.is_gif {
+                Color::Rgb(255, 200, 130)
+            } else {
+                Color::Rgb(150, 200, 255)
+            };
+
+            let name_display = truncate(&entry.filename, 22);
+
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" {} ", icon), Style::default().fg(icon_color)),
+                Span::styled(
+                    format!("{:<22}", name_display),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled(
+                    format!("  {}K", entry.size_kb),
+                    Style::default().fg(Color::Rgb(120, 120, 140)),
+                ),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .title(Span::styled(
+                    " ◆ 图片列表 ",
+                    Style::default()
+                        .fg(Color::Rgb(255, 130, 200))
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .border_style(Style::default().fg(Color::Rgb(160, 110, 200)))
+                .style(Style::default().bg(Color::Rgb(30, 30, 42))),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Rgb(30, 20, 40))
+                .bg(Color::Rgb(255, 210, 100))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
+
+    let mut list_state = ratatui::widgets::ListState::default();
+    if !gallery.images.is_empty() {
+        list_state.select(Some(gallery.selected));
+    }
+    frame.render_stateful_widget(list, list_area, &mut list_state);
+
+    // ============ 右侧预览 ============
+    let preview_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .title(Span::styled(
+            " ◆ 预览 ",
+            Style::default()
+                .fg(Color::Rgb(255, 130, 200))
+                .add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::default().fg(Color::Rgb(160, 110, 200)))
+        .style(Style::default().bg(Color::Rgb(20, 20, 28)));
+    frame.render_widget(preview_block, preview_area);
+
+    let preview_inner = Rect {
+        x: preview_area.x + 1,
+        y: preview_area.y + 1,
+        width: preview_area.width.saturating_sub(2),
+        height: preview_area.height.saturating_sub(2),
+    };
+
+    // 空状态
+    if gallery.images.is_empty() {
+        let hint = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "📭 assets/portraits/ 下没有图片",
+                Style::default().fg(Color::Rgb(180, 180, 200)),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "把 PNG / JPG / GIF 放进 assets/portraits/",
+                Style::default().fg(Color::Rgb(120, 120, 140)),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(Color::Rgb(20, 20, 28)));
+        frame.render_widget(hint, preview_inner);
+    } else if let Some(err) = &gallery.error {
+        let hint = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("⚠ {}", err),
+                Style::default().fg(Color::Rgb(255, 120, 120)),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(Color::Rgb(20, 20, 28)));
+        frame.render_widget(hint, preview_inner);
+    } else if let Some(img) = gallery.current_frame() {
+        // 按比例居中显示，留出 2 格边距
+        let padded = Rect {
+            x: preview_inner.x + 1,
+            y: preview_inner.y + 1,
+            width: preview_inner.width.saturating_sub(2),
+            height: preview_inner.height.saturating_sub(2),
+        };
+        // 用 draw_portrait 保持宽高比（居中），position=2
+        crate::image::draw_portrait(frame, padded, img, 2, 100);
+    }
+
+    // ---------- 底部信息栏 ----------
+    let info_line = if let Some(entry) = gallery.images.get(gallery.selected) {
+        let idx_text = format!("{}/{}", gallery.selected + 1, gallery.images.len());
+        let kind_text = if entry.is_gif { "GIF" } else { "图片" };
+        let size_text = format!("{} KB", entry.size_kb);
+
+        let dims_text = gallery
+            .current_dimensions()
+            .map(|(w, h)| format!("{}×{}", w, h))
+            .unwrap_or_else(|| "?".to_string());
+
+        let gif_extra = if let (Some(frames), Some(idx)) = (
+            gallery.current_gif_frames(),
+            gallery.current_gif_index(),
+        ) {
+            format!("  • 第 {}/{} 帧", idx + 1, frames)
+        } else {
+            String::new()
+        };
+
+        Line::from(vec![
+            Span::styled(" 📄 ", Style::default().fg(Color::Rgb(255, 215, 0))),
+            Span::styled(
+                entry.filename.clone(),
+                Style::default()
+                    .fg(Color::Rgb(255, 255, 255))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  • {}  • {}  • {}{}", kind_text, size_text, dims_text, gif_extra),
+                Style::default().fg(Color::Rgb(150, 150, 180)),
+            ),
+            Span::raw("    "),
+            Span::styled(
+                format!("[{}]", idx_text),
+                Style::default().fg(Color::Rgb(255, 130, 200)),
+            ),
+            Span::styled("  ↑↓ 切换 │ Enter 忽略 │ Esc 返回", Style::default().fg(Color::Rgb(120, 120, 140))),
+        ])
+    } else {
+        Line::from(vec![Span::styled(
+            " 无图片",
+            Style::default().fg(Color::Rgb(150, 150, 180)),
+        )])
+    };
+
+    frame.render_widget(
+        Paragraph::new(info_line).style(Style::default().bg(bg_color)),
+        chunks[2],
+    );
+}
+
+/// 简单的字符串截断（中英文统一按字符数）
+fn truncate(s: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_chars {
+        s.to_string()
+    } else {
+        let mut out: String = chars[..max_chars.saturating_sub(1)].iter().collect();
+        out.push('…');
+        out
+    }
 }

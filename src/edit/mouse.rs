@@ -26,8 +26,22 @@ impl Editor {
         let row = mouse.row;
 
         if self.show_help {
-            self.show_help = false;
-            return;
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1);
+                    return;
+                }
+                MouseEventKind::ScrollDown => {
+                    self.help_scroll = self.help_scroll.saturating_add(1);
+                    return;
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    self.show_help = false;
+                    self.help_scroll = 0;
+                    return;
+                }
+                _ => return,
+            }
         }
 
         if matches!(self.mode, EditorMode::ShowStats) {
@@ -146,23 +160,46 @@ impl Editor {
                 let idx = (row - inner_y) as usize;
                 if idx < self.story_files.len() {
                     if idx == self.story_selected {
-                        if let Some(filename) = self.story_files.get(idx).cloned() {
-                            self.switch_to_file(&filename);
+                        let name = self.story_files[idx].clone();
+                        if name == ".." {
+                            self.file_mgr_dir.clear();
+                            self.story_selected = 0;
+                            self.load_story_files();
+                        } else if name.ends_with('/') {
+                            let dir = name.trim_end_matches('/').to_string();
+                            self.file_mgr_dir = dir;
+                            self.story_selected = 0;
+                            self.load_story_files();
+                        } else {
+                            let path = if self.file_mgr_dir.is_empty() {
+                                self.assets_dir.join(&name)
+                            } else {
+                                self.assets_dir.join(&self.file_mgr_dir).join(&name)
+                            };
+                            let ext = std::path::Path::new(&name)
+                                .extension()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("")
+                                .to_lowercase();
+                            if ext == "ng" || ext == "txt" {
+                                self.switch_to_file_abs(path);
+                            }
                         }
                     } else {
                         self.story_selected = idx;
                         self.story_state.select(Some(idx));
+                        self.update_file_mgr_preview();
                     }
                 }
             }
             return;
         }
-
+    
         if self.contains(self.menu_area, col, row) {
             self.mode = EditorMode::Normal;
             return;
         }
-
+    
         if self.contains(self.content_area, col, row) {
             let inner_y = self.content_area.y + 1;
             if row >= inner_y {

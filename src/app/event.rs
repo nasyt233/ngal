@@ -104,6 +104,46 @@ impl App {
                 }
                 return;
             }
+            AppState::Gallery => {
+                match key {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if let Some(g) = &mut self.gallery {
+                            g.prev();
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if let Some(g) = &mut self.gallery {
+                            g.next();
+                        }
+                    }
+                    KeyCode::PageUp => {
+                        if let Some(g) = &mut self.gallery {
+                            g.page_up(5);
+                        }
+                    }
+                    KeyCode::PageDown => {
+                        if let Some(g) = &mut self.gallery {
+                            g.page_down(5);
+                        }
+                    }
+                    KeyCode::Home => {
+                        if let Some(g) = &mut self.gallery {
+                            g.first();
+                        }
+                    }
+                    KeyCode::End => {
+                        if let Some(g) = &mut self.gallery {
+                            g.last();
+                        }
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.gallery = None;
+                        self.state = AppState::Menu;
+                    }
+                    _ => {}
+                }
+                return;
+            }
             AppState::About => {
                 match key {
                     KeyCode::Esc | KeyCode::Char('q') => self.state = AppState::Menu,

@@ -3,7 +3,6 @@ use anyhow::Result;
 use crate::parser::{self, DialogueCommand};
 use crate::variables::Variables;
 use super::{App, AppState};
-use std::time::{Duration, Instant};
 
 impl App {
     // ==================== 执行命令 ====================
@@ -20,31 +19,47 @@ impl App {
                     let char_len = first_char.len_utf8();
                     self.display_text.push_str(&self.target_text[0..char_len]);
                 }
-
+    
                 let interpolated_speaker =
                     speaker.as_ref().map(|s| self.variables.interpolate(s));
                 let final_speaker = interpolated_speaker.as_deref();
-
+    
                 if let Some(s) = final_speaker {
                     self.add_to_history(Some(s), &interpolated);
                 } else {
                     self.add_to_history(None, &interpolated);
                 }
-
+    
                 if let Some(v) = voice {
                     self.play_voice_by_file(final_speaker.unwrap_or(""), Some(&v));
                 } else if let Some(s) = final_speaker {
                     self.play_voice_by_file(s, None);
                 }
             }
-            DialogueCommand::Sleep { seconds } => {
-                let dur = Duration::from_secs_f64(seconds);
-                self.sleep_until = Some(Instant::now() + dur);
-            }
             DialogueCommand::Image(params) => {
+                // GIF 优先
+                self.current_image_gif = None;
+                if let Some(filename) = &params.filename {
+                    if filename.to_lowercase().ends_with(".gif") {
+                        let path = format!("assets/portraits/{}", filename);
+                        if let Ok(gif) = crate::image::load_gif(&path) {
+                            self.current_image_gif = Some(gif);
+                        }
+                    }
+                }
                 self.current_image_params = Some(params);
             }
             DialogueCommand::Background { filename } => {
+                // GIF 优先
+                self.current_background_gif = None;
+                if let Some(f) = &filename {
+                    if f.to_lowercase().ends_with(".gif") {
+                        let path = format!("assets/portraits/{}", f);
+                        if let Ok(gif) = crate::image::load_gif(&path) {
+                            self.current_background_gif = Some(gif);
+                        }
+                    }
+                }
                 self.current_background = filename;
             }
             DialogueCommand::Music { filename } => {
@@ -93,7 +108,9 @@ impl App {
             DialogueCommand::End => {
                 self.state = AppState::Menu;
                 self.current_image_params = None;
+                self.current_image_gif = None;
                 self.current_background = None;
+                self.current_background_gif = None;
                 self.current_file = None;
                 self.stop_bgm();
                 self.play_title_bgm();
@@ -133,9 +150,13 @@ impl App {
                     self.skip_non_interactive_commands();
                 }
             }
+            DialogueCommand::Sleep { seconds } => {
+                let dur = std::time::Duration::from_secs_f64(seconds);
+                self.sleep_until = Some(std::time::Instant::now() + dur);
+            }
         }
     }
-
+    
     // ==================== 跳过非交互命令 ====================
 
     pub fn skip_non_interactive_commands(&mut self) {
@@ -188,7 +209,6 @@ impl App {
     // ==================== 开始游戏 ====================
 
     pub fn start_game(&mut self) {
-        // ========== 完全重置游戏状态 ==========
         self.snapshot_stack.clear();
         self.history.clear();
         self.history_selected = 0;
@@ -196,21 +216,22 @@ impl App {
         self.auto_play_timer = None;
         self.status_message = None;
         self.prev_state = None;
+        self.sleep_until = None;
     
         self.target_text.clear();
         self.display_text.clear();
         self.input_buffer.clear();
         self.current_bgm = None;
         self.current_image_params = None;
+        self.current_image_gif = None;
         self.current_background = None;
+        self.current_background_gif = None;
         self.current_file = None;
     
         self.stop_bgm();
         self.stop_voice();
-    
         self.variables = Variables::new();
     
-        // ========== 清空并重新加载主剧情 ==========
         self.scenes.clear();
         self.file_scene_order.clear();
     
@@ -234,7 +255,6 @@ impl App {
             }
         }
     
-        // ========== 从 welcome 开始 ==========
         let initial_scene = "welcome".to_string();
         if self.scenes.contains_key(&initial_scene) {
             let scene_id = initial_scene.clone();

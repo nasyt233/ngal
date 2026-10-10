@@ -19,8 +19,10 @@ pub mod text;
 pub mod settings;
 pub mod event;
 pub mod rewind;
+pub mod gallery;
 
 pub use state::{AppState, SettingsAction, Snapshot};
+pub use gallery::{GalleryState, GalleryEntry};
 
 const HISTORY_MAX: usize = 50;
 
@@ -33,9 +35,11 @@ pub struct App {
     pub config: Config,
     pub logo: Option<crate::image::RgbaImage>,
     pub menu_image: Option<crate::image::RgbaImage>,
+    pub logo_gif: Option<crate::image::GifPlayer>,
+    pub menu_image_gif: Option<crate::image::GifPlayer>,
+    pub gallery: Option<GalleryState>,
     pub should_quit: bool,
     pub history: VecDeque<(Option<String>, String)>,
-    pub sleep_until: Option<Instant>,
     pub auto_play_timer: Option<Instant>,
     pub prev_state: Option<Box<AppState>>,
     pub title: String,
@@ -45,6 +49,8 @@ pub struct App {
     pub input_buffer: String,
     pub current_background: Option<String>,
     pub current_image_params: Option<ImageParams>,
+    pub current_image_gif: Option<crate::image::GifPlayer>,
+    pub current_background_gif: Option<crate::image::GifPlayer>,
     pub target_text: String,
     pub display_text: String,
     pub last_char_time: Instant,
@@ -53,6 +59,7 @@ pub struct App {
     pub file_scene_order: HashMap<String, Vec<String>>,
     pub snapshot_stack: Vec<Snapshot>,
     pub history_selected: usize,
+    pub sleep_until: Option<Instant>,
 }
 
 impl App {
@@ -66,20 +73,33 @@ impl App {
 
         let config = Config::load()?;
 
-        let logo = if let Some(logo_file) = &game_config.logo {
+        let (logo, logo_gif) = if let Some(logo_file) = &game_config.logo {
             let path = format!("assets/portraits/{}", logo_file);
-            crate::image::load_image_once(&path).ok()
+            if logo_file.to_lowercase().ends_with(".gif") {
+                match crate::image::load_gif(&path) {
+                    Ok(gif) => (None, Some(gif)),
+                    Err(_) => (crate::image::load_image_once(&path).ok(), None),
+                }
+            } else {
+                (crate::image::load_image_once(&path).ok(), None)
+            }
         } else {
-            None
+            (None, None)
         };
-
-        let menu_image = if let Some(ref path) = game_config.menu_image {
+        
+        let (menu_image, menu_image_gif) = if let Some(ref path) = game_config.menu_image {
             let img_path = format!("assets/portraits/{}", path);
-            crate::image::load_image_once(&img_path).ok()
+            if path.to_lowercase().ends_with(".gif") {
+                match crate::image::load_gif(&img_path) {
+                    Ok(gif) => (None, Some(gif)),
+                    Err(_) => (crate::image::load_image_once(&img_path).ok(), None),
+                }
+            } else {
+                (crate::image::load_image_once(&img_path).ok(), None)
+            }
         } else {
-            None
+            (None, None)
         };
-
         // 主菜单背景音乐
         if let Some(bgm_file) = &game_config.bgm {
             let bgm_path = format!("assets/music/{}", bgm_file);
@@ -101,6 +121,7 @@ impl App {
             menu_options: vec![
                 "开始游戏".to_string(),
                 "加载游戏".to_string(),
+                "图片鉴赏".to_string(),
                 "关于我们".to_string(),
                 "游戏设置".to_string(),
                 "退出游戏".to_string(),
@@ -111,6 +132,9 @@ impl App {
             config,
             logo,
             menu_image,
+            logo_gif,
+            menu_image_gif,
+            gallery: None,
             should_quit: false,
             history: VecDeque::with_capacity(HISTORY_MAX),
             sleep_until: None,
@@ -131,6 +155,8 @@ impl App {
             file_scene_order,
             snapshot_stack: Vec::new(),
             history_selected: 0,
+            current_image_gif: None,
+            current_background_gif: None,
         })
     }
 
@@ -174,10 +200,19 @@ impl App {
         match self.selected {
             0 => self.start_game(),
             1 => self.open_load_slot(),
-            2 => self.state = AppState::About,
-            3 => self.state = AppState::Settings,
-            4 => self.should_quit = true,
+            2 => self.open_gallery(),
+            3 => self.state = AppState::About,
+            4 => self.state = AppState::Settings,
+            5 => self.should_quit = true,
             _ => {}
         }
+    }
+    
+    /// 打开图片鉴赏
+    pub fn open_gallery(&mut self) {
+        let gallery = GalleryState::new();
+        self.gallery = Some(gallery);
+        self.prev_state = Some(Box::new(self.state.clone()));
+        self.state = AppState::Gallery;
     }
 }

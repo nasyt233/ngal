@@ -10,19 +10,18 @@
 > 
 
 ## ✨ Features
-
-- 🤓 Automatic game scanning
-- 🎨 Colorful UI with double-line border layout
-- 📝 Built-in easy-to-use script editor
-- 🖼️ Character portraits & background images (PNG / JPEG supported)
-- 🎵 Background music & character voice playback (requires mpv)
-- 📜 Branching choices & multiple endings
-- 💾 Unlimited save slots
-- ⌨️ Auto-play, typewriter text animation, dialogue history
-- 🎨 Customizable background color
-- 🧮 Variable arithmetic (`+ - * /`) and `if` conditional branching
-- 📝 Inline comments (`#`) and escape sequences (`:` `"` `'` `\n` `\t`)
-- 🕹️ System command execution `$(uptime)` to fetch system information such as announcements
+- 🤓 Automatic scanning, manage game creation
+- 🎨 Colorful interface, double-line border layout
+- 📝 Built-in editor, simple, user-friendly, and convenient
+- 🖼️ Character illustrations, background images, GIF animations
+- 🎵 Background music, character voices (requires mpv)
+- 📜 Branching options, multiple endings
+- 💾 Unlimited extended save slots
+- ⌨️ Auto-play, text animations, history tracking
+- 🎨 Customizable background color selection, interface layout
+- 🧮 Variable operations (` - * /`) and `if` conditional statements
+- 📝 Inline comments (`#`) and escape characters (`:` `"` `'` `\n` `\t`)
+- 🕹 Command execution $(uptime) can run system commands to fetch announcements or similar
 
 ## 🚀 Quick Start
 
@@ -51,11 +50,12 @@ cargo install ngal
 ### Run
 
 ```bash
-ngal              # Launch game in current directory
-ngal mygame       # Launch game from specified folder
-ngal --version    # Show version
-ngal build        # Package your game
-ngal edit         # Open built-in script editor
+ngal              # Game management interface
+ngal mygame       # Run the game in the specified directory
+ngal new          # Create a new game
+ngal --version    # View version information
+ngal build        # Package game files
+ngal edit         # Content editor
 ```
 
 ### Directory Structure
@@ -91,19 +91,19 @@ load:index              # Jump to another label inside current script
 [index]                 # New label, do NOT leave blank lines between label and content
 name = John             # Assign variable
 bg:bg.png               # Load background image
-System: Waiting for 2 seconds
-sleep:2                 # Pause execution for 2 seconds, auto continue afterwards
-System: 2 second wait finished.
 music:bg.mp3            # Play background music
 img:logo.png:2:50%      # Show portrait, position:1=left,2=center,3=right; scale:50%
 System: Welcome to ngal engine!
-System: Hello player:hello.mp3    # Dialogue with voice audio
+System: Press Enter, wait for 2 seconds
+sleep:2                 # During the 2-second wait, operations cannot be performed. After waiting, the next command is executed automatically.
+System: 2-second wait ended.
+System: Hello player:hello.mp3  # Dialogue with voice audio
 System: Current time $(date)
 System: User: $(whoami)\nDirectory: $(pwd)    # \n = line break
-img:logo2.png           # Switch portrait
-img:                    # Empty value hides portrait (same rule for bg / music)
-System: Default name: {name}   # Insert variable into text
-input:Enter your name:name     # Prompt user input and store result into variable
+img:logo2.png                   # Switch portrait
+img:                            # Empty value hides portrait (same rule for bg / music)
+System: Default name: {name}    # Insert variable into text
+input:Enter your name:name      # Prompt user input and store result into variable
 {name}: My name is {name}!
 
 # Variable calculation

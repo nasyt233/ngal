@@ -2,7 +2,7 @@
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind, KeyEventKind
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -241,6 +241,11 @@ pub fn run_scanner(root: &Path) -> Result<()> {
         if event::poll(Duration::from_millis(80))? {
             match event::read()? {
                 Event::Key(key) => {
+                    // Windows 下会同时发 Press 和 Release，只处理 Press / Repeat
+                    if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                        continue;
+                    }
+
                     // ---------- 新建输入模式 ----------
                     if creating {
                         match key.code {
@@ -369,7 +374,6 @@ pub fn run_scanner(root: &Path) -> Result<()> {
                                     let target = if dialog_path.exists() {
                                         dialog_path
                                     } else {
-                                        // 回退：找 assets/dialog 下第一个 .ng/.txt
                                         find_first_script(&entry.path)
                                             .unwrap_or(dialog_path)
                                     };
@@ -400,9 +404,8 @@ pub fn run_scanner(root: &Path) -> Result<()> {
                                     )?;
                                     terminal.clear()?;
                                     continue;
-                                } else {
-                                    // 打包游戏不支持编辑
                                 }
+                                // 打包游戏不支持编辑，忽略
                             }
                         }
                         KeyCode::Char('n') | KeyCode::Char('N') => {

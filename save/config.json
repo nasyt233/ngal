@@ -1,0 +1,10 @@
+{
+  "bgm_volume": 70,
+  "voice_volume": 80,
+  "auto_play": false,
+  "auto_play_speed": 3.0,
+  "text_animation": true,
+  "text_speed": 50,
+  "background_color": "#2A2A3E",
+  "version": "1.0.3"
+}

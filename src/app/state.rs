@@ -9,6 +9,7 @@ pub enum AppState {
     Settings,
     About,
     History,
+    Gallery,
     GameMenu,
     SaveSlot,
     LoadSlot,

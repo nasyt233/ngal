@@ -2,7 +2,7 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::shell::execute_shell_command;
-use super::state::{EditorMode, FileNameAction};
+use super::state::{EditorMode, FieldKind, FileNameAction, GameSettingsForm};
 use super::Editor;
 
 impl Editor {
@@ -18,6 +18,7 @@ impl Editor {
             EditorMode::ConfirmDelete => self.handle_confirm_delete(key),
             EditorMode::FileNameInput { .. } => self.handle_file_name_input(key),
             EditorMode::Shell { .. } => self.handle_shell(key),
+            EditorMode::GameSettings => self.handle_game_settings(key),
             EditorMode::ShowStats => {
                 self.pending_stats = None;
                 self.mode = EditorMode::Normal;
@@ -62,8 +63,18 @@ impl Editor {
     fn handle_file_picker(&mut self, key: KeyCode) {
         match key {
             KeyCode::Esc => {
-                self.mode = EditorMode::Normal;
                 self.picker_query.clear();
+                self.preview_image = None;
+                self.preview_error = None;
+    
+                // 场景 A：从游戏设置表单进来
+                if self.picker_for_settings.take().is_some() {
+                    self.mode = EditorMode::GameSettings;
+                    return;
+                }
+    
+                // 场景 B/C：从功能区或补全进来
+                self.mode = EditorMode::Normal;
                 self.picker_replace_start = None;
                 self.status_message = Some("已取消选择".to_string());
             }
@@ -74,6 +85,7 @@ impl Editor {
                 } else if self.picker_selected > 0 {
                     self.picker_selected -= 1;
                 }
+                self.update_preview();
             }
             KeyCode::Down => {
                 if self.picker_focused {
@@ -84,20 +96,24 @@ impl Editor {
                 {
                     self.picker_selected += 1;
                 }
+                self.update_preview();
             }
             KeyCode::Home => {
                 self.picker_focused = false;
                 self.picker_selected = 0;
+                self.update_preview();
             }
             KeyCode::End => {
                 self.picker_focused = false;
                 if !self.picker_files.is_empty() {
                     self.picker_selected = self.picker_files.len() - 1;
                 }
+                self.update_preview();
             }
             KeyCode::PageUp => {
                 self.picker_focused = false;
                 self.picker_selected = self.picker_selected.saturating_sub(10);
+                self.update_preview();
             }
             KeyCode::PageDown => {
                 self.picker_focused = false;
@@ -105,20 +121,37 @@ impl Editor {
                     self.picker_selected =
                         (self.picker_selected + 10).min(self.picker_files.len() - 1);
                 }
+                self.update_preview();
             }
             KeyCode::Enter => {
+                // 场景 A：游戏设置表单 → 写回字段值
+                if let Some(idx) = self.picker_for_settings.take() {
+                    if let Some(filename) = self.picker_files.get(self.picker_selected).cloned() {
+                        if let Some(f) = &mut self.game_settings {
+                            f.set_value(idx, filename.clone());
+                        }
+                        self.status_message = Some(format!("已选择 {}", filename));
+                    }
+                    self.picker_query.clear();
+                    self.preview_image = None;
+                    self.preview_error = None;
+                    self.mode = EditorMode::GameSettings;
+                    return;
+                }
+    
+                // 场景 B/C：插入到内容区
                 if let Some(filename) = self.picker_files.get(self.picker_selected).cloned() {
                     self.push_undo();
-
+    
                     let line_content = match self.picker_target {
                         0 => format!("music:{}", filename),
                         1 => format!("bg:{}", filename),
                         2 => format!("img:{}", filename),
                         _ => filename.clone(),
                     };
-
+    
                     if let Some(start) = self.picker_replace_start.take() {
-                        // 从补全触发：替换光标前的部分
+                        // 场景 C：补全触发 → 替换当前行光标前的部分
                         if self.content_cursor < self.content.len() {
                             let cur = self.content[self.content_cursor].clone();
                             let chars: Vec<char> = cur.chars().collect();
@@ -131,30 +164,154 @@ impl Editor {
                             self.content_col = real_start + line_content.chars().count();
                         }
                     } else {
-                        // 从菜单进入：插入新行
+                        // 场景 B：功能区菜单直接插入新行
                         let insert_pos = self.content_cursor.min(self.content.len());
                         self.content.insert(insert_pos, line_content);
                         self.content_cursor = insert_pos + 1;
                         self.content_col = 0;
                     }
-
+    
                     self.status_message = Some(format!("✓ 已插入 {}", filename));
                 }
+    
                 self.mode = EditorMode::Normal;
                 self.picker_query.clear();
                 self.picker_replace_start = None;
+                self.preview_image = None;
+                self.preview_error = None;
             }
             KeyCode::Backspace => {
                 self.picker_focused = true;
                 self.picker_query.pop();
                 self.filter_picker_files();
+                self.update_preview();
             }
             KeyCode::Char(c) => {
                 self.picker_focused = true;
                 self.picker_query.push(c);
                 self.filter_picker_files();
+                self.update_preview();
             }
             _ => {}
+        }
+    }
+    
+    // ============================================================
+    // 游戏设置
+    // ============================================================
+    fn handle_game_settings(&mut self, key: KeyCode) {
+        if self.game_settings.is_none() {
+            self.game_settings = Some(GameSettingsForm::load());
+        }
+    
+        // ---------- 编辑状态 ----------
+        let editing = self.game_settings.as_ref().map(|f| f.editing).unwrap_or(false);
+        if editing {
+            match key {
+                KeyCode::Enter => {
+                    if let Some(f) = &mut self.game_settings {
+                        f.commit_edit();
+                    }
+                }
+                KeyCode::Esc => {
+                    if let Some(f) = &mut self.game_settings {
+                        f.cancel_edit();
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(f) = &mut self.game_settings {
+                        f.edit_buffer.pop();
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let Some(f) = &mut self.game_settings {
+                        f.edit_buffer.push(c);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+    
+        // ---------- 非编辑状态：先计算动作 ----------
+        enum Act {
+            Prev,
+            Next,
+            BeginEdit,
+            PickFile(usize, bool), // (字段idx, is_music)
+            Adjust(i32),
+            Save,
+            Close,
+            None,
+        }
+    
+        let act = {
+            let form = match &self.game_settings {
+                Some(f) => f,
+                None => return,
+            };
+            match key {
+                KeyCode::Up | KeyCode::Char('k') => Act::Prev,
+                KeyCode::Down | KeyCode::Char('j') => Act::Next,
+                KeyCode::Enter => {
+                    let field = &form.fields[form.selected];
+                    match field.kind {
+                        FieldKind::Text => Act::BeginEdit,
+                        FieldKind::Number { .. } => Act::BeginEdit,
+                        FieldKind::FilePortrait => Act::PickFile(form.selected, false),
+                        FieldKind::FileMusic => Act::PickFile(form.selected, true),
+                    }
+                }
+                KeyCode::Left => Act::Adjust(-1),
+                KeyCode::Right => Act::Adjust(1),
+                KeyCode::Char('s') | KeyCode::Char('S') => Act::Save,
+                KeyCode::Esc | KeyCode::Char('q') => Act::Close,
+                _ => Act::None,
+            }
+        };
+    
+        match act {
+            Act::Prev => {
+                if let Some(f) = &mut self.game_settings {
+                    f.prev();
+                }
+            }
+            Act::Next => {
+                if let Some(f) = &mut self.game_settings {
+                    f.next();
+                }
+            }
+            Act::BeginEdit => {
+                if let Some(f) = &mut self.game_settings {
+                    f.begin_edit();
+                }
+            }
+            Act::PickFile(idx, is_music) => {
+                self.picker_for_settings = Some(idx);
+                self.picker_replace_start = None;
+                // 0=music, 1=portraits
+                self.open_file_picker(if is_music { 0 } else { 1 });
+            }
+            Act::Adjust(delta) => {
+                if let Some(f) = &mut self.game_settings {
+                    f.adjust_number(delta);
+                }
+            }
+            Act::Save => {
+                if let Some(f) = &mut self.game_settings {
+                    if let Err(e) = f.save() {
+                        f.error = Some(format!("保存失败: {}", e));
+                    } else {
+                        self.status_message = Some("✓ 已保存 game.json".to_string());
+                    }
+                }
+            }
+            Act::Close => {
+                self.game_settings = None;
+                self.picker_for_settings = None;
+                self.mode = EditorMode::Normal;
+            }
+            Act::None => {}
         }
     }
 
@@ -334,6 +491,7 @@ impl Editor {
                 if self.story_selected > 0 {
                     self.story_selected -= 1;
                     self.story_state.select(Some(self.story_selected));
+                    self.update_file_mgr_preview();
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -342,40 +500,88 @@ impl Editor {
                 {
                     self.story_selected += 1;
                     self.story_state.select(Some(self.story_selected));
+                    self.update_file_mgr_preview();
                 }
             }
             KeyCode::Home => {
                 self.story_selected = 0;
                 self.story_state.select(Some(0));
+                self.update_file_mgr_preview();
             }
             KeyCode::End => {
                 if !self.story_files.is_empty() {
                     self.story_selected = self.story_files.len() - 1;
                     self.story_state.select(Some(self.story_selected));
+                    self.update_file_mgr_preview();
                 }
             }
             KeyCode::PageUp => {
                 self.story_selected = self.story_selected.saturating_sub(10);
                 self.story_state.select(Some(self.story_selected));
+                self.update_file_mgr_preview();
             }
             KeyCode::PageDown => {
                 if !self.story_files.is_empty() {
-                    if self.story_selected + 10 < self.story_files.len() {
-                        self.story_selected += 10;
-                    } else {
-                        self.story_selected = self.story_files.len() - 1;
-                    }
+                    let max = self.story_files.len() - 1;
+                    self.story_selected = (self.story_selected + 10).min(max);
                     self.story_state.select(Some(self.story_selected));
+                    self.update_file_mgr_preview();
                 }
             }
             KeyCode::Enter => {
-                if let Some(filename) = self.story_files.get(self.story_selected).cloned() {
-                    self.switch_to_file(&filename);
+                let name = match self.story_files.get(self.story_selected).cloned() {
+                    Some(n) => n,
+                    None => return,
+                };
+    
+                if name == ".." {
+                    // 返回上级
+                    self.file_mgr_dir.clear();
+                    self.story_selected = 0;
+                    self.load_story_files();
+                } else if name.ends_with('/') {
+                    // 进入子目录
+                    let dir = name.trim_end_matches('/').to_string();
+                    self.file_mgr_dir = dir;
+                    self.story_selected = 0;
+                    self.load_story_files();
+                } else {
+                    // 是文件
+                    let path = if self.file_mgr_dir.is_empty() {
+                        self.assets_dir.join(&name)
+                    } else {
+                        self.assets_dir.join(&self.file_mgr_dir).join(&name)
+                    };
+    
+                    let ext = std::path::Path::new(&name)
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+    
+                    if ext == "ng" || ext == "txt" {
+                        self.switch_to_file_abs(path);
+                    } else if matches!(
+                        ext.as_str(),
+                        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp"
+                    ) {
+                        self.update_file_mgr_preview();
+                        self.status_message = Some(format!("预览: {}", name));
+                    }
                 }
             }
             KeyCode::Char('r') => {
-                self.load_story_files();
-                self.status_message = Some("↻ 已刷新文件列表".to_string());
+                if self.story_files.is_empty() || self.story_selected >= self.story_files.len() {
+                    return;
+                }
+                let name = self.story_files[self.story_selected].clone();
+                if name == ".." {
+                    return;
+                }
+                self.mode = EditorMode::FileNameInput {
+                    action: FileNameAction::Rename(name),
+                    buffer: String::new(),
+                };
             }
             KeyCode::Char('i') => {
                 self.mode = EditorMode::DirectEdit;
@@ -386,23 +592,39 @@ impl Editor {
                 self.show_help = true;
             }
             KeyCode::Char('n') => {
+                // 只能在 dialog 下新建 .ng
+                if self.file_mgr_dir != "dialog" && !self.file_mgr_dir.is_empty() {
+                    self.status_message =
+                        Some("只能在 dialog 目录下新建剧本".to_string());
+                    return;
+                }
                 self.mode = EditorMode::FileNameInput {
                     action: FileNameAction::Create,
                     buffer: String::new(),
                 };
             }
             KeyCode::Char('d') => {
-                if !self.story_files.is_empty() {
-                    self.mode = EditorMode::ConfirmDelete;
+                if self.story_files.is_empty() || self.story_selected >= self.story_files.len() {
+                    return;
                 }
+                let name = self.story_files[self.story_selected].clone();
+                if name == ".." {
+                    return;
+                }
+                self.mode = EditorMode::ConfirmDelete;
             }
             KeyCode::Char('m') => {
-                if let Some(name) = self.story_files.get(self.story_selected).cloned() {
-                    self.mode = EditorMode::FileNameInput {
-                        action: FileNameAction::Rename(name),
-                        buffer: String::new(),
-                    };
+                if self.story_files.is_empty() || self.story_selected >= self.story_files.len() {
+                    return;
                 }
+                let name = self.story_files[self.story_selected].clone();
+                if name == ".." {
+                    return;
+                }
+                self.mode = EditorMode::FileNameInput {
+                    action: FileNameAction::Rename(name),
+                    buffer: String::new(),
+                };
             }
             _ => {}
         }
@@ -540,8 +762,6 @@ impl Editor {
                     return;
                 }
                 KeyCode::Backspace => {
-                    // 关闭补全，继续走下面的删除逻辑
-                    self.cancel_completion();
                     // 不 return，让 Backspace 正常处理
                 }
                 KeyCode::Char(_) => {
@@ -697,7 +917,7 @@ impl Editor {
                     self.adjust_hscroll();
                 }
                 // 明确关闭补全（Backspace 不重新触发）
-                self.cancel_completion();
+                self.refresh_completion();
             }
             KeyCode::Delete => {
                 self.cancel_completion();
@@ -735,7 +955,7 @@ impl Editor {
                     *line = new_chars.into_iter().collect();
                     self.content_col += 2;
                     self.adjust_hscroll();
-                    self.maybe_trigger_completion(false);
+                    self.refresh_completion();
                     return;
                 }
 
@@ -765,8 +985,7 @@ impl Editor {
                 self.adjust_hscroll();
 
                 // -------- 触发/刷新补全 --------
-                // 唯一匹配会自动应用；多匹配会弹菜单
-                self.maybe_trigger_completion(false);
+                self.refresh_completion();
             }
             _ => {}
         }
@@ -777,7 +996,35 @@ impl Editor {
     // ============================================================
     fn handle_normal(&mut self, key: KeyCode, modifiers: KeyModifiers) {
         if self.show_help {
-            self.show_help = false;
+            match key {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help_scroll = self.help_scroll.saturating_add(1);
+                }
+                KeyCode::PageUp => {
+                    self.help_scroll = self.help_scroll.saturating_sub(10);
+                }
+                KeyCode::PageDown => {
+                    self.help_scroll = self.help_scroll.saturating_add(10);
+                }
+                KeyCode::Home => {
+                    self.help_scroll = 0;
+                }
+                KeyCode::End => {
+                    self.help_scroll = u16::MAX; // render 时会被 clamp
+                }
+                KeyCode::Char('h') | KeyCode::Char('H') => {
+                    self.show_help = true;
+                    self.help_scroll = 0;
+                }
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    self.show_help = false;
+                    self.help_scroll = 0;
+                }
+                _ => {}
+            }
             return;
         }
 
@@ -795,8 +1042,9 @@ impl Editor {
         match key {
             KeyCode::Tab => {
                 self.mode = EditorMode::FileListFocus;
-                self.status_message =
-                    Some("文件列表 | Enter打开 | n新建 d删除 m重命名".to_string());
+                self.status_message = Some(
+                    "文件管理 | Enter打开 │ n新建 │ d删除 │ r重命名 │ ..返回上级".to_string(),
+                );
             }
             KeyCode::Char('q') => {
                 self.save();

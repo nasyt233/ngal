@@ -8,6 +8,7 @@ use ratatui::{
 };
 use std::collections::VecDeque;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 pub type RgbaImage = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
@@ -60,6 +61,131 @@ fn decode_image(path: &str) -> Result<RgbaImage> {
         .map_err(|e| anyhow!("解码失败: {}", e))?;
     Ok(img.to_rgba8())
 }
+
+// ============ GIF 动画 ============
+/// 单张 GIF 最多解析的帧数
+pub const GIF_MAX_FRAMES: usize = 300;
+/// 单张 GIF 展开后的内存上限（防止爆内存）
+pub const GIF_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024; // 32 MB
+
+pub struct GifPlayer {
+    frames: Vec<RgbaImage>,
+    delays: Vec<Duration>,
+    current: usize,
+    next_frame_time: Instant,
+    pub total_bytes: u64,
+}
+
+impl GifPlayer {
+    pub fn from_frames(frames: Vec<RgbaImage>, delays: Vec<Duration>) -> Self {
+        let total_bytes: u64 = frames
+            .iter()
+            .map(|f| (f.width() * f.height() * 4) as u64)
+            .sum();
+        let first_delay = delays
+            .first()
+            .copied()
+            .unwrap_or(Duration::from_millis(100));
+        Self {
+            frames,
+            delays,
+            current: 0,
+            next_frame_time: Instant::now() + first_delay,
+            total_bytes,
+        }
+    }
+
+    pub fn frame_count(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn current_index(&self) -> usize {
+        self.current
+    }
+
+    /// 时钟前进，如果该切帧则切，返回 true
+    pub fn tick(&mut self) -> bool {
+        if self.frames.is_empty() {
+            return false;
+        }
+        let now = Instant::now();
+        if now >= self.next_frame_time {
+            self.current = (self.current + 1) % self.frames.len();
+            let delay = self
+                .delays
+                .get(self.current)
+                .copied()
+                .unwrap_or(Duration::from_millis(100));
+            // 防止延迟过长（某些 GIF 最后一帧 delay=0，会导致跳帧）
+            let delay = delay.max(Duration::from_millis(20));
+            self.next_frame_time = now + delay;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn current_frame(&self) -> Option<&RgbaImage> {
+        self.frames.get(self.current)
+    }
+}
+
+/// 从资源加载 GIF（支持内存模式和文件系统）
+pub fn load_gif(path: &str) -> Result<GifPlayer> {
+    use image::codecs::gif::GifDecoder;
+    use image::AnimationDecoder;
+
+    let real_path = crate::assets::materialize(path)
+        .ok_or_else(|| anyhow!("GIF 不存在: {}", path))?;
+
+    let file = std::fs::File::open(&real_path)
+        .map_err(|e| anyhow!("打开 GIF 失败: {}", e))?;
+
+    let decoder = GifDecoder::new(std::io::BufReader::new(file))
+        .map_err(|e| anyhow!("GIF 解码器初始化失败: {}", e))?;
+
+    let raw_frames = decoder
+        .into_frames()
+        .collect_frames()
+        .map_err(|e| anyhow!("GIF 帧收集失败: {}", e))?;
+
+    if raw_frames.is_empty() {
+        return Err(anyhow!("GIF 没有有效帧: {}", path));
+    }
+
+    let mut frames: Vec<RgbaImage> = Vec::new();
+    let mut delays: Vec<Duration> = Vec::new();
+    let mut total_bytes: u64 = 0;
+
+    for (i, frame) in raw_frames.into_iter().enumerate() {
+        if i >= GIF_MAX_FRAMES {
+            break;
+        }
+
+        // 帧延迟
+        let delay = frame.delay();
+        let (num, den) = delay.numer_denom_ms();
+        let ms = if den == 0 { 100 } else { num / den };
+        let ms = ms.clamp(20, 2000); // 20ms–2s 之间
+
+        let buffer = frame.into_buffer();
+        total_bytes += (buffer.width() * buffer.height() * 4) as u64;
+        if total_bytes > GIF_MAX_TOTAL_BYTES {
+            break;
+        }
+
+        frames.push(buffer);
+        delays.push(Duration::from_millis(ms as u64));
+    }
+
+    if frames.is_empty() {
+        return Err(anyhow!("GIF 无可用帧: {}", path));
+    }
+
+    Ok(GifPlayer::from_frames(frames, delays))
+}
+
+// ============ 绘制函数 ============
 
 /// 绘制背景图片（拉伸填满整个区域，不保持宽高比）
 pub fn draw_background(frame: &mut Frame, area: Rect, img: &RgbaImage) {

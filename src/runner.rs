@@ -1,7 +1,10 @@
 // src/runner.rs
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+        MouseButton, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -39,28 +42,69 @@ pub fn run_game() -> Result<()> {
 
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
-                Event::Key(key) => match key.code {
-                    KeyCode::Esc | KeyCode::Char('q') => {
-                        if let crate::app::AppState::Menu = app.state {
-                            break;
-                        } else {
-                            app.handle_event(key.code);
-                        }
+                Event::Key(key) => {
+                    // Windows 下会同时发 Press 和 Release，只处理 Press / Repeat
+                    if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                        continue;
                     }
-                    _ => app.handle_event(key.code),
-                },
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            if let crate::app::AppState::Menu = app.state {
+                                break;
+                            } else {
+                                app.handle_event(key.code);
+                            }
+                        }
+                        _ => app.handle_event(key.code),
+                    }
+                }
                 Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::ScrollUp => {
-                        if let crate::app::AppState::Menu = app.state {
+                    MouseEventKind::ScrollUp => match app.state {
+                        crate::app::AppState::Menu => {
                             if app.selected > 0 {
                                 app.selected -= 1;
                             }
                         }
-                    }
-                    MouseEventKind::ScrollDown => {
-                        if let crate::app::AppState::Menu = app.state {
+                        crate::app::AppState::Gallery => {
+                            if let Some(g) = &mut app.gallery {
+                                g.prev();
+                            }
+                        }
+                        _ => {}
+                    },
+                    MouseEventKind::ScrollDown => match app.state {
+                        crate::app::AppState::Menu => {
                             if app.selected < app.menu_options.len() - 1 {
                                 app.selected += 1;
+                            }
+                        }
+                        crate::app::AppState::Gallery => {
+                            if let Some(g) = &mut app.gallery {
+                                g.next();
+                            }
+                        }
+                        _ => {}
+                    },
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        if let crate::app::AppState::Gallery = app.state {
+                            if let Some(g) = &mut app.gallery {
+                                let la = g.list_area;
+                                let col = mouse.column;
+                                let row = mouse.row;
+                
+                                if la.width > 2
+                                    && la.height > 2
+                                    && col >= la.x
+                                    && col < la.x + la.width
+                                    && row >= la.y + 1
+                                    && row < la.y + la.height - 1
+                                {
+                                    let idx = (row - la.y - 1) as usize;
+                                    if idx < g.images.len() {
+                                        g.selected = idx;
+                                        g.load_current();
+                                    }
+                                }
                             }
                         }
                     }

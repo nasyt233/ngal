@@ -8,8 +8,8 @@ use ratatui::{
 };
 
 use super::state::{
-    CompletionKind, EditorMode, FileNameAction, C_ACCENT, C_BG, C_BG_ALT, C_BLUE, C_BORDER_DIM,
-    C_BORDER_FOCUS, C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW, MENU_ITEMS,
+    CompletionKind, EditorMode, FieldKind, FileNameAction, C_ACCENT, C_BG, C_BG_ALT, C_BLUE,
+    C_BORDER_DIM, C_BORDER_FOCUS, C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW, MENU_ITEMS,
 };
 use super::syntax::{highlight_line, highlight_line_with_cursor};
 use super::Editor;
@@ -70,6 +70,7 @@ impl Editor {
             EditorMode::ConfirmDelete => "确认删除",
             EditorMode::FileNameInput { .. } => "文件名",
             EditorMode::Shell { .. } => "终端",
+            EditorMode::GameSettings => "游戏设置",
             EditorMode::ShowStats => "统计",
         };
         let title_line = Line::from(vec![
@@ -98,7 +99,7 @@ impl Editor {
         let is_menu_focus = matches!(self.mode, EditorMode::Normal);
         let is_filelist_focus = matches!(self.mode, EditorMode::FileListFocus);
 
-        // 功能菜单
+        // ==================== 功能菜单 ====================
         let items: Vec<ListItem> = MENU_ITEMS
             .iter()
             .map(|label| {
@@ -155,68 +156,61 @@ impl Editor {
 
         frame.render_stateful_widget(sidebar_list, menu_area, &mut self.sidebar_state);
 
-        // 剧情文件列表
+        // ==================== 文件管理 ====================
+        let path_label = if self.file_mgr_dir.is_empty() {
+            "assets/".to_string()
+        } else {
+            format!("assets/{}/", self.file_mgr_dir)
+        };
+
+        let (file_border, file_title_text) = if is_filelist_focus {
+            (C_BLUE, format!(" ◆ 文件管理 · {} ", path_label))
+        } else {
+            (C_BORDER_DIM, format!("   {} ", path_label))
+        };
+
         let file_items: Vec<ListItem> = if self.story_files.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
-                "  (无文件，按 n 新建)",
+                "  (空)",
                 Style::default().fg(C_GRAY),
             )))]
         } else {
-            let current_name = self
+            let current_filename = self
                 .file_path
                 .file_name()
                 .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
+                .map(|s| s.to_string());
+        
             self.story_files
                 .iter()
                 .map(|f| {
-                    let is_current = f == &current_name;
-                    let size_str = std::fs::metadata(self.dialog_dir.join(f))
-                        .ok()
-                        .map(|m| {
-                            let kb = m.len() / 1024;
-                            if kb < 1 {
-                                format!("{}B", m.len())
-                            } else {
-                                format!("{}K", kb)
-                            }
-                        })
-                        .unwrap_or_default();
-                    if is_current {
-                        ListItem::new(Line::from(vec![
-                            Span::styled(
-                                "● ",
-                                Style::default()
-                                    .fg(C_GREEN)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(
-                                f.clone(),
-                                Style::default()
-                                    .fg(C_GREEN)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(format!("  {}", size_str), Style::default().fg(C_GRAY)),
-                        ]))
-                    } else {
-                        ListItem::new(Line::from(vec![
-                            Span::raw("  "),
-                            Span::styled(
-                                f.clone(),
-                                Style::default().fg(Color::Rgb(210, 210, 220)),
-                            ),
-                            Span::styled(format!("  {}", size_str), Style::default().fg(C_GRAY)),
-                        ]))
+                    // 返回上级
+                    if f == ".." {
+                        return ListItem::new(Line::from(Span::styled(
+                            "  ⬆ ..",
+                            Style::default().fg(C_YELLOW),
+                        )));
                     }
+                    // 目录
+                    if f.ends_with('/') {
+                        let dir_name = f.trim_end_matches('/');
+                        return ListItem::new(Line::from(Span::styled(
+                            format!("  {}/", dir_name),
+                            Style::default()
+                                .fg(C_BLUE)
+                                .add_modifier(Modifier::BOLD),
+                        )));
+                    }
+                    // 文件
+                    let is_current = current_filename.as_deref() == Some(f.as_str());
+                    let style = if is_current {
+                        Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Rgb(210, 210, 220))
+                    };
+                    ListItem::new(Line::from(Span::styled(format!("  {}", f), style)))
                 })
                 .collect()
-        };
-
-        let (file_border, file_title) = if is_filelist_focus {
-            (C_BLUE, " ◆ 剧情文件 (n新建 d删 m改) ")
-        } else {
-            (C_BORDER_DIM, "   剧情文件 ")
         };
 
         let file_list = List::new(file_items)
@@ -225,7 +219,7 @@ impl Editor {
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .title(Span::styled(
-                        file_title,
+                        file_title_text,
                         Style::default()
                             .fg(if is_filelist_focus { C_BLUE } else { C_GRAY })
                             .add_modifier(Modifier::BOLD),
@@ -243,7 +237,7 @@ impl Editor {
 
         frame.render_stateful_widget(file_list, file_list_area, &mut self.story_state);
 
-        // 右侧内容
+        // ==================== 右侧内容 ====================
         let total_lines = self.content.len();
         let line_num_width = if total_lines < 10 {
             1
@@ -340,7 +334,7 @@ impl Editor {
 
         frame.render_widget(content_para, content_area);
 
-        // 底部状态栏
+        // ==================== 底部状态栏 ====================
         let (status_text, status_style, status_border) = match self.mode {
             EditorMode::Normal => {
                 let text = self.status_message.clone().unwrap_or_else(|| {
@@ -351,7 +345,7 @@ impl Editor {
             }
             EditorMode::FileListFocus => {
                 let text = self.status_message.clone().unwrap_or_else(|| {
-                    " ↑↓/jk选择 │ n新建 │ d删除 │ m重命名 │ r刷新 │ Enter打开 │ Tab编辑 │ ESC返回"
+                    " ↑↓/jk选择 │ Enter进入/打开 │ n新建 │ d删除 │ r/m重命名 │ Esc返回功能区"
                         .to_string()
                 });
                 (format!(" {}", text), Style::default().fg(C_BLUE), C_BLUE)
@@ -394,6 +388,12 @@ impl Editor {
                 Style::default().fg(C_ACCENT),
                 C_ACCENT,
             ),
+            EditorMode::GameSettings => (
+                " ↑↓ 切换字段 │ Enter 编辑/选择 │ ←→ 调整数字 │ S 保存 │ Esc 关闭"
+                    .to_string(),
+                Style::default().fg(C_PINK),
+                C_PINK,
+            ),
             EditorMode::ShowStats => (
                 " 统计信息 │ 按任意键关闭".to_string(),
                 Style::default().fg(C_BLUE),
@@ -413,8 +413,7 @@ impl Editor {
 
         frame.render_widget(status_para, status_area);
 
-        // ============ 弹窗 ============
-
+        // ==================== 弹窗 ====================
         self.render_file_picker(frame, area);
         self.render_scene_picker(frame, area);
         self.render_character_picker(frame, area);
@@ -424,6 +423,57 @@ impl Editor {
         self.render_stats(frame, area);
         self.render_help(frame, area);
         self.render_completion(frame, area);
+        self.render_file_mgr_preview(frame, area);
+        self.render_game_settings(frame, area);
+    }
+
+    // ============================================================
+    // 文件管理预览（右下角浮窗）
+    // ============================================================
+    fn render_file_mgr_preview(&self, frame: &mut Frame, area: Rect) {
+        if !matches!(self.mode, EditorMode::FileListFocus) {
+            return;
+        }
+        let img = match &self.preview_image {
+            Some(i) => i,
+            None => return,
+        };
+
+        let popup_w = 40u16.min(area.width.saturating_sub(4));
+        let popup_h = 20u16.min(area.height.saturating_sub(4));
+        if popup_w < 6 || popup_h < 4 {
+            return;
+        }
+
+        let popup = Rect {
+            x: area.x + area.width.saturating_sub(popup_w + 2),
+            y: area.y + area.height.saturating_sub(popup_h + 2),
+            width: popup_w,
+            height: popup_h,
+        };
+
+        frame.render_widget(Clear, popup);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .title(Span::styled(
+                " ◆ 预览 ",
+                Style::default().fg(C_PINK).add_modifier(Modifier::BOLD),
+            ))
+            .border_style(Style::default().fg(C_PINK))
+            .style(Style::default().bg(C_BG));
+
+        frame.render_widget(block, popup);
+
+        let inner = Rect {
+            x: popup.x + 1,
+            y: popup.y + 1,
+            width: popup.width.saturating_sub(2),
+            height: popup.height.saturating_sub(2),
+        };
+
+        crate::image::draw_portrait(frame, inner, img, 2, 100);
     }
 
     // ============================================================
@@ -438,7 +488,6 @@ impl Editor {
         let popup_w = 46u16.min(inner.width.max(20));
         let popup_h = (self.completion_items.len() as u16 + 2).min(12);
 
-        // 定位：内容区右上角向内偏移
         let popup_x = inner
             .x
             .saturating_add(inner.width.saturating_sub(popup_w + 2));
@@ -462,6 +511,7 @@ impl Editor {
                     CompletionKind::FilePicker(_) => " [文件]",
                     CompletionKind::ScenePicker => " [场景]",
                     CompletionKind::CharacterPicker => " [角色]",
+                    CompletionKind::Variable => " [变量]",
                 };
                 ListItem::new(Line::from(vec![
                     Span::styled(
@@ -481,7 +531,19 @@ impl Editor {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Double)
-                    .title(format!(" ◆ 补全: {} ", self.completion_query))
+                    .title(format!(
+                        " ◆ {}: {} ",
+                        if self
+                            .completion_items
+                            .iter()
+                            .any(|i| i.kind == CompletionKind::Variable)
+                        {
+                            "变量"
+                        } else {
+                            "补全"
+                        },
+                        self.completion_query
+                    ))
                     .border_style(Style::default().fg(C_GREEN))
                     .style(Style::default().bg(C_BG_ALT)),
             )
@@ -497,18 +559,137 @@ impl Editor {
         state.select(Some(self.completion_selected));
         frame.render_stateful_widget(list, popup_area, &mut state);
     }
+    
+    // ============================================================
+    // 游戏设置弹窗
+    // ============================================================
+    fn render_game_settings(&self, frame: &mut Frame, area: Rect) {
+        if !matches!(self.mode, EditorMode::GameSettings) {
+            return;
+        }
+        let form = match &self.game_settings {
+            Some(f) => f,
+            None => return,
+        };
+    
+        let popup_area = centered_rect(74, 70, area);
+        frame.render_widget(Clear, popup_area);
+    
+        let mut lines: Vec<Line> = Vec::new();
+        lines.push(Line::from(""));
+    
+        for (i, field) in form.fields.iter().enumerate() {
+            let is_sel = i == form.selected;
+    
+            // 标记
+            let marker = if is_sel { "▶ " } else { "  " };
+            let marker_style = Style::default()
+                .fg(C_YELLOW)
+                .add_modifier(Modifier::BOLD);
+    
+            // 标签
+            let label_style = if is_sel {
+                Style::default()
+                    .fg(C_PINK)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(C_GRAY)
+            };
+    
+            // 值显示
+            let value_display = if is_sel && form.editing {
+                format!("{}█", form.edit_buffer)
+            } else if field.value.is_empty() {
+                "(未设置)".to_string()
+            } else {
+                field.value.clone()
+            };
+    
+            let value_style = if is_sel {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Rgb(210, 210, 230))
+            };
+    
+            // 字段类型提示
+            let hint: String = match field.kind {
+                FieldKind::FilePortrait => "  [Enter 选图片]".to_string(),
+                FieldKind::FileMusic => "  [Enter 选音乐]".to_string(),
+                FieldKind::Number { min, max } => {
+                    format!("  [←→ 调整 {}–{}]", min, max)
+                }
+                FieldKind::Text => String::new(),
+            };
+            
+            lines.push(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(format!("{:<12}", field.label), label_style),
+                Span::styled(value_display, value_style),
+                Span::styled(hint, Style::default().fg(C_GRAY)),
+            ]));
+        }
+    
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  ↑↓ ", Style::default().fg(C_YELLOW)),
+            Span::styled("切换字段   ", Style::default().fg(C_GRAY)),
+            Span::styled("Enter ", Style::default().fg(C_GREEN)),
+            Span::styled("编辑/选择   ", Style::default().fg(C_GRAY)),
+            Span::styled("←→ ", Style::default().fg(C_YELLOW)),
+            Span::styled("调整数字   ", Style::default().fg(C_GRAY)),
+            Span::styled("S ", Style::default().fg(C_YELLOW)),
+            Span::styled("保存   ", Style::default().fg(C_GRAY)),
+            Span::styled("Esc ", Style::default().fg(C_RED)),
+            Span::styled("关闭", Style::default().fg(C_GRAY)),
+        ]));
+    
+        if let Some(err) = &form.error {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("  ⚠ {}", err),
+                Style::default().fg(C_RED),
+            )));
+        }
+    
+        let title = if form.dirty {
+            " ◆ 游戏设置 (未保存) "
+        } else {
+            " ◆ 游戏设置 (game.json) "
+        };
+    
+        let para = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Double)
+                    .title(Span::styled(
+                        title,
+                        Style::default()
+                            .fg(C_PINK)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .border_style(Style::default().fg(C_PINK))
+                    .style(Style::default().bg(C_BG_ALT)),
+            );
+    
+        frame.render_widget(para, popup_area);
+    }
 
     // ============================================================
-    // 文件选择器（带搜索）
+    // 文件选择器（带搜索 + 预览）
     // ============================================================
     fn render_file_picker(&self, frame: &mut Frame, area: Rect) {
         if !matches!(self.mode, EditorMode::FilePicker) {
             return;
         }
-        let popup_area = centered_rect(60, 60, area);
+        let popup_area = centered_rect(80, 70, area);
         frame.render_widget(Clear, popup_area);
 
-        let chunks = Layout::default()
+        // 上下：搜索栏 + 内容
+        let outer = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(popup_area);
@@ -533,9 +714,21 @@ impl Editor {
                 })
                 .style(Style::default().bg(C_BG_ALT)),
         );
-        frame.render_widget(search_para, chunks[0]);
+        frame.render_widget(search_para, outer[0]);
 
-        // 列表
+        // 内容：左列表 右预览
+        let content = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Percentage(50),
+            ])
+            .split(outer[1]);
+
+        let list_area = content[0];
+        let preview_area = content[1];
+
+        // -------- 左侧列表 --------
         let items: Vec<ListItem> = if self.picker_files.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
                 "  (无匹配文件)",
@@ -569,7 +762,54 @@ impl Editor {
         if !self.picker_files.is_empty() {
             list_state.select(Some(self.picker_selected));
         }
-        frame.render_stateful_widget(list, chunks[1], &mut list_state);
+        frame.render_stateful_widget(list, list_area, &mut list_state);
+
+        // -------- 右侧预览 --------
+        let preview_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .title(Span::styled(
+                " ◆ 预览 ",
+                Style::default()
+                    .fg(C_PINK)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .border_style(Style::default().fg(C_PINK))
+            .style(Style::default().bg(C_BG));
+
+        frame.render_widget(preview_block, preview_area);
+
+        let preview_inner = Rect {
+            x: preview_area.x + 1,
+            y: preview_area.y + 1,
+            width: preview_area.width.saturating_sub(2),
+            height: preview_area.height.saturating_sub(2),
+        };
+
+        if let Some(img) = &self.preview_image {
+            crate::image::draw_portrait(frame, preview_inner, img, 2, 100);
+        } else if let Some(err) = &self.preview_error {
+            let para = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled(err.clone(), Style::default().fg(C_GRAY))),
+                Line::from(""),
+            ])
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(C_BG));
+            frame.render_widget(para, preview_inner);
+        } else {
+            let para = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "选择文件查看预览",
+                    Style::default().fg(C_GRAY),
+                )),
+                Line::from(""),
+            ])
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(C_BG));
+            frame.render_widget(para, preview_inner);
+        }
     }
 
     // ============================================================
@@ -587,7 +827,6 @@ impl Editor {
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(popup_area);
 
-        // 搜索栏
         let cursor = if self.scene_focused { "█" } else { "" };
         let search_text = format!(" 🔍 {}{}", self.scene_query, cursor);
         let search_style = if self.scene_focused {
@@ -609,7 +848,6 @@ impl Editor {
         );
         frame.render_widget(search_para, chunks[0]);
 
-        // 列表
         let items: Vec<ListItem> = if self.scene_list.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
                 "  (没有找到场景)",
@@ -723,7 +961,7 @@ impl Editor {
             Line::from(""),
             Line::from(vec![
                 Span::styled(
-                    " ⚠ 确认删除文件 ",
+                    " ⚠ 确认删除 ",
                     Style::default().fg(C_RED).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
@@ -769,8 +1007,8 @@ impl Editor {
         frame.render_widget(Clear, popup_area);
 
         let (title, hint) = match action {
-            FileNameAction::Create => (" 新建文件 ", " 输入文件名 (自动添加 .ng 后缀) "),
-            FileNameAction::Rename(_) => (" 重命名文件 ", " 输入新文件名 (自动添加 .ng 后缀) "),
+            FileNameAction::Create => (" 新建 ", " 输入名称 (剧本自动添加 .ng 后缀) "),
+            FileNameAction::Rename(_) => (" 重命名 ", " 输入新名称 "),
         };
 
         let text = vec![
@@ -1051,7 +1289,7 @@ impl Editor {
         }
         let popup_area = centered_rect(70, 90, area);
         frame.render_widget(Clear, popup_area);
-
+    
         let help_lines = vec![
             Line::from(Span::styled(
                 "  ngal 编辑器 - 快捷键帮助  ",
@@ -1073,22 +1311,20 @@ impl Editor {
             Line::from("  h            显示本帮助"),
             Line::from("  x/c/v        剪切/复制/粘贴行"),
             Line::from("  d/Delete     删除当前行"),
-            Line::from("  Tab          切换到文件列表"),
+            Line::from("  Tab          切换到文件管理"),
             Line::from("  F5           运行测试"),
             Line::from("  q            保存并退出"),
             Line::from(""),
             Line::from(Span::styled(
-                " ◆ 剧情文件列表 ",
+                " ◆ 文件管理 ",
                 Style::default().fg(C_BLUE).add_modifier(Modifier::BOLD),
             )),
-            Line::from("  ↑/↓/j/k      选择文件"),
-            Line::from("  Home/End     首/尾"),
-            Line::from("  PgUp/PgDn    快速翻页"),
-            Line::from("  Enter        打开选中文件"),
-            Line::from("  n            新建文件"),
-            Line::from("  d            删除文件 (需确认)"),
-            Line::from("  m            重命名文件"),
-            Line::from("  r            刷新文件列表"),
+            Line::from("  ↑/↓/j/k      选择条目"),
+            Line::from("  Enter        进入目录 / 打开剧本 / 预览图片"),
+            Line::from("  ..           返回上级目录"),
+            Line::from("  n            新建剧本 (仅 dialog)"),
+            Line::from("  d            删除 (需确认)"),
+            Line::from("  r / m        重命名"),
             Line::from("  Tab          切到编辑区"),
             Line::from("  ESC          返回功能区"),
             Line::from(""),
@@ -1115,14 +1351,23 @@ impl Editor {
             Line::from("  Tab/Enter    接受选中项"),
             Line::from("  ↑↓           在补全列表中移动"),
             Line::from("  ESC          关闭补全框"),
-            Line::from("  唯一匹配     自动填入，无需选择"),
+            Line::from(""),
+            Line::from(Span::styled(
+                " ◆ 变量补全 ",
+                Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  输入 {       自动配对并弹出变量列表"),
+            Line::from("               (从所有剧情文件收集)"),
+            Line::from("  Tab/Enter    接受选中变量"),
+            Line::from("  ↑↓           选择变量"),
+            Line::from("  ESC          关闭补全框"),
             Line::from(""),
             Line::from(Span::styled(
                 " ◆ 自动配对 ",
                 Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD),
             )),
             Line::from("  \" ' { [ ( <   输入时自动补右半边"),
-            Line::from("  $()          在 input 中可直接用"),
+            Line::from("  $            输入 $ 自动补 $()"),
             Line::from(""),
             Line::from(Span::styled(
                 " ◆ 选择器 (文件/场景/角色) ",
@@ -1135,6 +1380,15 @@ impl Editor {
             Line::from("  ESC          取消"),
             Line::from(""),
             Line::from(Span::styled(
+                " ◆ 游戏设置 ",
+                Style::default().fg(C_PINK).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  功能区 → 游戏设置"),
+            Line::from("  编辑 title / footer / logo / bgm 等"),
+            Line::from("  图片/音乐字段可按 Enter 从 assets 里选"),
+            Line::from("  S 保存   Esc 关闭"),
+            Line::from(""),
+            Line::from(Span::styled(
                 " ◆ 鼠标操作 ",
                 Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD),
             )),
@@ -1143,20 +1397,53 @@ impl Editor {
             Line::from("  再次点击     执行 / 打开"),
             Line::from(""),
             Line::from(Span::styled(
-                "  按任意键关闭本窗口",
+                " ◆ 帮助窗口 ",
+                Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  ↑↓/j/k      上下滚动"),
+            Line::from("  PgUp/PgDn    快速滚动"),
+            Line::from("  Home/End     首尾"),
+            Line::from("  H / Esc / q  关闭本窗口"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  按 H 或 Esc 关闭本窗口",
                 Style::default().fg(C_GRAY),
             )),
         ];
-
-        let help_para = Paragraph::new(help_lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Double)
-                .title(" ◆ 帮助 ")
-                .border_style(Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD))
-                .style(Style::default().bg(Color::Rgb(18, 18, 28))),
-        );
-
+    
+        // 计算可视区域，应用滚动
+        let inner_h = popup_area.height.saturating_sub(2) as usize;
+        let total = help_lines.len();
+        let max_scroll = total.saturating_sub(inner_h) as u16;
+        let scroll = self.help_scroll.min(max_scroll);
+    
+        // 标题栏显示滚动位置
+        let title = if total > inner_h {
+            format!(
+                " ◆ 帮助 ({}/{}) ↑↓ 滚动 ",
+                (scroll as usize + inner_h).min(total),
+                total
+            )
+        } else {
+            " ◆ 帮助 ".to_string()
+        };
+    
+        let help_para = Paragraph::new(help_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Double)
+                    .title(Span::styled(
+                        title,
+                        Style::default()
+                            .fg(C_YELLOW)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .border_style(Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD))
+                    .style(Style::default().bg(Color::Rgb(18, 18, 28))),
+            )
+            .scroll((scroll, 0));
+    
         frame.render_widget(help_para, popup_area);
     }
 }

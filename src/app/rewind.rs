@@ -1,5 +1,4 @@
 // src/app/rewind.rs
-use std::time::Instant;
 use super::{App, Snapshot};
 
 impl App {
@@ -20,20 +19,23 @@ impl App {
         }
         self.snapshot_stack.push(snap);
     }
-
-    /// 回退一步对话
+    
     pub fn rewind_dialogue(&mut self) {
         let snap = match self.snapshot_stack.pop() {
             Some(s) => s,
             None => return,
         };
-
+    
         self.state = snap.state;
         self.current_file = snap.current_file;
         self.variables.deserialize(snap.variables);
         self.current_image_params = snap.current_image_params;
         self.current_background = snap.current_background;
-
+    
+        // GIF 状态不恢复，重置为 None
+        self.current_image_gif = None;
+        self.current_background_gif = None;
+    
         // BGM 变更时重新播放
         let snap_bgm = snap.current_bgm.clone();
         if self.current_bgm != snap_bgm {
@@ -42,13 +44,11 @@ impl App {
                 None => self.stop_bgm(),
             }
         }
-
-        // 停止当前语音
+    
         self.stop_voice();
-
-        // 恢复文本
+    
         self.target_text = snap.target_text;
         self.display_text = self.target_text.clone();
-        self.last_char_time = Instant::now();
+        self.last_char_time = std::time::Instant::now();
     }
 }

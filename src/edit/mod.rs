@@ -8,14 +8,14 @@ pub mod stats;
 pub mod syntax;
 
 pub use state::{
-    CompletionItem, CompletionKind, EditorMode, FileNameAction, StatInfo, C_ACCENT, C_BG,
-    C_BG_ALT, C_BLUE, C_BORDER_DIM, C_BORDER_FOCUS, C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW,
-    MENU_ITEMS, UNDO_MAX,
+    CompletionItem, CompletionKind, EditorMode, FieldKind, FileNameAction, GameSettingsForm,
+    SettingsField, StatInfo, C_ACCENT, C_BG, C_BG_ALT, C_BLUE, C_BORDER_DIM, C_BORDER_FOCUS,
+    C_GRAY, C_GREEN, C_PINK, C_RED, C_YELLOW, MENU_ITEMS, UNDO_MAX,
 };
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -51,6 +51,10 @@ pub struct Editor {
     pub(crate) assets_dir: PathBuf,
     pub(crate) status_message: Option<String>,
     pub(crate) should_quit: bool,
+    pub(crate) help_scroll: u16,
+    
+    // ← 文件管理当前位置（相对 assets/ 的路径，空串 = 根）
+    pub(crate) file_mgr_dir: String,
 
     // 文件选择器
     pub(crate) picker_files: Vec<String>,
@@ -60,7 +64,6 @@ pub struct Editor {
     pub(crate) picker_selected: usize,
     pub(crate) picker_target: usize,
     pub(crate) picker_title: String,
-    /// 从补全触发时，替换的起始位置（None = 插入新行）
     pub(crate) picker_replace_start: Option<usize>,
 
     // 场景选择器
@@ -84,6 +87,7 @@ pub struct Editor {
     pub(crate) completion_query: String,
     pub(crate) completion_start: usize,
 
+    // 文件列表（现在当作文件管理的条目列表）
     pub(crate) story_files: Vec<String>,
     pub(crate) story_selected: usize,
     pub(crate) story_state: ListState,
@@ -98,10 +102,20 @@ pub struct Editor {
     pub(crate) file_list_area: Rect,
     pub(crate) content_area: Rect,
     pub(crate) pending_stats: Option<StatInfo>,
+
+    // ← 游戏设置表单
+    pub(crate) game_settings: Option<GameSettingsForm>,
+    pub(crate) picker_for_settings: Option<usize>,
+
+    // ← 文件管理/图片选择器共用预览
+    pub(crate) preview_image: Option<crate::image::RgbaImage>,
+    pub(crate) preview_error: Option<String>,
 }
 
 impl Editor {
     pub fn new(file_path: PathBuf) -> Result<Self> {
+        crate::assets::set_filesystem();
+    
         let content = if file_path.exists() {
             fs::read_to_string(&file_path)?
                 .lines()
@@ -140,7 +154,10 @@ impl Editor {
             assets_dir,
             status_message: None,
             should_quit: false,
-
+            help_scroll: 0,
+            
+            file_mgr_dir: String::new(),
+        
             picker_files: Vec::new(),
             picker_all_files: Vec::new(),
             picker_query: String::new(),
@@ -149,7 +166,7 @@ impl Editor {
             picker_target: 0,
             picker_title: String::new(),
             picker_replace_start: None,
-
+        
             scene_list: Vec::new(),
             scene_all_list: Vec::new(),
             scene_query: String::new(),
@@ -157,17 +174,17 @@ impl Editor {
             scene_selected: 0,
             scene_title: String::new(),
             scene_replace_start: None,
-
+        
             character_list: Vec::new(),
             character_selected: 0,
             character_title: String::new(),
-
+        
             completion_active: false,
             completion_items: Vec::new(),
             completion_selected: 0,
             completion_query: String::new(),
             completion_start: 0,
-
+        
             story_files: Vec::new(),
             story_selected: 0,
             story_state,
@@ -182,6 +199,12 @@ impl Editor {
             file_list_area: Rect::default(),
             content_area: Rect::default(),
             pending_stats: None,
+            
+            game_settings: None,
+            picker_for_settings: None,
+
+            preview_image: None,
+            preview_error: None,
         };
 
         editor.load_story_files();
@@ -358,6 +381,189 @@ impl Editor {
         self.completion_start = start;
         self.completion_active = true;
     }
+    
+    /// 从所有剧情文件里提取变量名（赋值语句 + input 变量）
+    pub(crate) fn collect_variables(&self) -> Vec<String> {
+        let mut vars: Vec<String> = Vec::new();
+    
+        if self.dialog_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&self.dialog_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                    if ext != "ng" && ext != "txt" {
+                        continue;
+                    }
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        for line in content.lines() {
+                            let line = line.split('#').next().unwrap_or("").trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+    
+                            // if 条件：跳过
+                            if line.starts_with("if ") {
+                                // 但可能包含赋值，跳过整行
+                                continue;
+                            }
+    
+                            // 变量赋值：name = value
+                            if let Some(eq) = line.find('=') {
+                                // 排除比较运算符
+                                if line.contains(">=")
+                                    || line.contains("<=")
+                                    || line.contains("==")
+                                    || line.contains("!=")
+                                {
+                                    continue;
+                                }
+                                let name = line[..eq].trim();
+                                if Self::is_valid_varname(name)
+                                    && !vars.contains(&name.to_string())
+                                {
+                                    vars.push(name.to_string());
+                                }
+                            }
+    
+                            // input:prompt:varname
+                            if line.starts_with("input:") {
+                                let rest = &line[6..];
+                                if let Some(last_colon) = rest.rfind(':') {
+                                    let name = rest[last_colon + 1..].trim();
+                                    if Self::is_valid_varname(name)
+                                        && !vars.contains(&name.to_string())
+                                    {
+                                        vars.push(name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    
+        vars.sort();
+        vars
+    }
+    
+    fn is_valid_varname(name: &str) -> bool {
+        if name.is_empty() || name.len() > 32 {
+            return false;
+        }
+        let mut chars = name.chars();
+        let first = chars.next().unwrap();
+        if !first.is_alphabetic() && first != '_' {
+            return false;
+        }
+        name.chars().all(|c| c.is_alphanumeric() || c == '_')
+    }
+    
+    /// 光标是否处于未闭合的 `{...` 变量上下文
+    fn is_in_variable_context(&self) -> bool {
+        if self.content_cursor >= self.content.len() {
+            return false;
+        }
+        let line = self.content[self.content_cursor].clone();
+        let chars: Vec<char> = line.chars().collect();
+        let pos = self.content_col.min(chars.len());
+    
+        // 从光标往前找最近的 `{`，中间不能有 `}`
+        let mut i = pos;
+        while i > 0 {
+            i -= 1;
+            let c = chars[i];
+            if c == '}' {
+                return false;
+            }
+            if c == '{' {
+                return true;
+            }
+        }
+        false
+    }
+    
+    /// 统一刷新补全：优先变量补全，否则命令补全
+    pub(crate) fn refresh_completion(&mut self) {
+        if self.is_in_variable_context() {
+            self.maybe_trigger_variable_completion();
+        } else {
+            self.maybe_trigger_completion(false);
+        }
+    }
+    
+    /// 变量补全：检测光标前未闭合的 `{`
+    pub(crate) fn maybe_trigger_variable_completion(&mut self) {
+        if self.content_cursor >= self.content.len() {
+            self.completion_active = false;
+            return;
+        }
+    
+        let line = self.content[self.content_cursor].clone();
+        let chars: Vec<char> = line.chars().collect();
+        let pos = self.content_col.min(chars.len());
+    
+        // 找未闭合的 `{`
+        let mut open_pos: Option<usize> = None;
+        let mut i = pos;
+        while i > 0 {
+            i -= 1;
+            let c = chars[i];
+            if c == '}' {
+                self.completion_active = false;
+                return;
+            }
+            if c == '{' {
+                open_pos = Some(i);
+                break;
+            }
+        }
+    
+        let open_pos = match open_pos {
+            Some(p) => p,
+            None => {
+                self.completion_active = false;
+                return;
+            }
+        };
+    
+        let query: String = chars[open_pos + 1..pos].iter().collect();
+    
+        // 提取变量列表
+        let vars = self.collect_variables();
+        let matches: Vec<CompletionItem> = vars
+            .into_iter()
+            .filter(|v| v.to_lowercase().starts_with(&query.to_lowercase()))
+            .map(|name| CompletionItem {
+                label: name.clone(),
+                insert: name.clone(),
+                desc: "变量".to_string(),
+                kind: CompletionKind::Variable,
+            })
+            .collect();
+    
+        if matches.is_empty() {
+            self.completion_active = false;
+            return;
+        }
+    
+        // 完全等于某个变量名 → 隐藏
+        if matches.len() == 1 && matches[0].label == query {
+            self.completion_active = false;
+            return;
+        }
+    
+        self.completion_items = matches;
+        if self.completion_selected >= self.completion_items.len() {
+            self.completion_selected = 0;
+        }
+        self.completion_query = query;
+        self.completion_start = open_pos + 1;
+        self.completion_active = true;
+    }
 
     /// 应用补全项
     pub(crate) fn apply_completion(&mut self, item: CompletionItem, start: usize, pos: usize) {
@@ -397,6 +603,11 @@ impl Editor {
                 self.content[self.content_cursor] = new_line;
                 self.content_col = real_start;
                 self.open_character_picker();
+            }
+            CompletionKind::Variable => {
+                let new_line = format!("{}{}{}", before, item.insert, after);
+                self.content[self.content_cursor] = new_line;
+                self.content_col = real_start + item.insert.chars().count();
             }
         }
     }
@@ -440,45 +651,116 @@ impl Editor {
     }
 
     pub(crate) fn load_story_files(&mut self) {
-        let mut files = Vec::new();
-        if self.dialog_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&self.dialog_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                            if ext == "ng" || ext == "txt" {
-                                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                                    files.push(name.to_string());
-                                }
-                            }
+        let mut items: Vec<String> = Vec::new();
+    
+        // 非根目录：加返回上级
+        if !self.file_mgr_dir.is_empty() {
+            items.push("..".to_string());
+        }
+    
+        let base = if self.file_mgr_dir.is_empty() {
+            self.assets_dir.clone()
+        } else {
+            self.assets_dir.join(&self.file_mgr_dir)
+        };
+    
+        let mut dirs: Vec<String> = Vec::new();
+        let mut files: Vec<String> = Vec::new();
+    
+        if let Ok(entries) = fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+    
+                // 顶层过滤 game.json / config.json
+                if self.file_mgr_dir.is_empty()
+                    && matches!(name.as_str(), "game.json" | "config.json")
+                {
+                    continue;
+                }
+    
+                let path = entry.path();
+    
+                if path.is_dir() {
+                    if self.file_mgr_dir.is_empty() {
+                        if ["dialog", "music", "portraits", "voices"]
+                            .contains(&name.as_str())
+                        {
+                            dirs.push(format!("{}/", name));
                         }
+                    } else {
+                        dirs.push(format!("{}/", name));
                     }
+                } else {
+                    files.push(name);
                 }
             }
         }
-        files.sort();
-        self.story_files = files;
-
+    
+        dirs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        files.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    
+        items.extend(dirs);
+        items.extend(files);
+    
+        self.story_files = items;
+    
         if self.story_files.is_empty() {
             self.story_selected = 0;
             self.story_state.select(None);
-        } else if self.story_selected >= self.story_files.len() {
-            self.story_selected = self.story_files.len() - 1;
+        } else {
+            if self.story_selected >= self.story_files.len() {
+                self.story_selected = self.story_files.len() - 1;
+            }
             self.story_state.select(Some(self.story_selected));
         }
+    
+        self.update_file_mgr_preview();
     }
-
-    pub(crate) fn switch_to_file(&mut self, filename: &str) {
-        let current = self.content.join("\n");
-        let _ = fs::write(&self.file_path, current);
-
-        let new_path = self.dialog_dir.join(filename);
-        if !new_path.exists() {
-            self.status_message = Some(format!("文件不存在: {}", filename));
+    
+    /// 更新左下角文件管理的预览
+    pub(crate) fn update_file_mgr_preview(&mut self) {
+        self.preview_image = None;
+        self.preview_error = None;
+    
+        let name = match self.story_files.get(self.story_selected) {
+            Some(n) => n.clone(),
+            None => return,
+        };
+    
+        if name == ".." || name.ends_with('/') {
             return;
         }
-
+    
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+    
+        if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp") {
+            return;
+        }
+    
+        let rel = if self.file_mgr_dir.is_empty() {
+            format!("assets/{}", name)
+        } else {
+            format!("assets/{}/{}", self.file_mgr_dir, name)
+        };
+    
+        match crate::image::load_image_rgba(&rel) {
+            Ok(img) => self.preview_image = Some(img),
+            Err(e) => self.preview_error = Some(format!("{}", e)),
+        }
+    }
+    
+    /// 按绝对路径打开剧本文件
+    pub(crate) fn switch_to_file_abs(&mut self, new_path: PathBuf) {
+        let current = self.content.join("\n");
+        let _ = fs::write(&self.file_path, current);
+    
         match fs::read_to_string(&new_path) {
             Ok(text) => {
                 self.content = text.lines().map(|s| s.to_string()).collect();
@@ -489,7 +771,7 @@ impl Editor {
                 self.content_hscroll = 0;
                 self.undo_stack.clear();
                 self.cancel_completion();
-                self.status_message = Some(format!("已切换到 {}", filename));
+                self.status_message = Some(format!("已打开 {}", self.file_path.display()));
             }
             Err(e) => {
                 self.status_message = Some(format!("读取失败: {}", e));
@@ -510,22 +792,37 @@ impl Editor {
     }
 
     pub(crate) fn create_file(&mut self, name: &str) {
-        let mut name = name.trim().to_string();
-        if name.is_empty() {
-            self.status_message = Some("文件名不能为空".to_string());
-            return;
-        }
-        if !name.ends_with(".ng") && !name.ends_with(".txt") {
-            name.push_str(".ng");
-        }
-        let path = self.dialog_dir.join(&name);
-        if path.exists() {
-            self.status_message = Some(format!("文件已存在: {}", name));
-            return;
-        }
-        let default_content = "[welcome]\n系统:这里是新的剧情文件。\nend\n";
+    let mut name = name.trim().to_string();
+    if name.is_empty() {
+        self.status_message = Some("文件名不能为空".to_string());
+        return;
+    }
+    if !name.ends_with(".ng") && !name.ends_with(".txt") {
+        name.push_str(".ng");
+    }
+
+    // 只在 dialog 目录下创建
+    let target_dir = if self.file_mgr_dir == "dialog" {
+        self.assets_dir.join("dialog")
+    } else if self.file_mgr_dir.is_empty() {
+        self.assets_dir.join("dialog")
+    } else {
+        self.assets_dir.join(&self.file_mgr_dir)
+    };
+
+    let path = target_dir.join(&name);
+    if path.exists() {
+        self.status_message = Some(format!("文件已存在: {}", name));
+        return;
+    }
+
+    let default_content = "[welcome]\n系统:这里是新的剧情文件。\nend\n";
         match fs::write(&path, default_content) {
             Ok(_) => {
+                // 如果不在 dialog 目录，跳到 dialog
+                if self.file_mgr_dir != "dialog" {
+                    self.file_mgr_dir = "dialog".to_string();
+                }
                 self.load_story_files();
                 if let Some(idx) = self.story_files.iter().position(|f| f == &name) {
                     self.story_selected = idx;
@@ -538,65 +835,90 @@ impl Editor {
             }
         }
     }
-
+    
     pub(crate) fn delete_file(&mut self) {
-        if self.story_files.is_empty() {
+        if self.story_files.is_empty() || self.story_selected >= self.story_files.len() {
             return;
         }
-        let filename = self.story_files[self.story_selected].clone();
-        let path = self.dialog_dir.join(&filename);
-        match fs::remove_file(&path) {
+        let name = self.story_files[self.story_selected].clone();
+        if name == ".." {
+            return;
+        }
+    
+        let is_dir = name.ends_with('/');
+        let clean_name = name.trim_end_matches('/').to_string();
+    
+        let path = if self.file_mgr_dir.is_empty() {
+            self.assets_dir.join(&clean_name)
+        } else {
+            self.assets_dir.join(&self.file_mgr_dir).join(&clean_name)
+        };
+    
+        let result = if is_dir {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+    
+        match result {
             Ok(_) => {
                 self.load_story_files();
-                if self.story_selected >= self.story_files.len() && !self.story_files.is_empty() {
-                    self.story_selected = self.story_files.len() - 1;
-                }
-                if !self.story_files.is_empty() {
-                    self.story_state.select(Some(self.story_selected));
-                }
-                self.status_message = Some(format!("✓ 已删除 {}", filename));
+                self.status_message = Some(format!("✓ 已删除 {}", clean_name));
             }
             Err(e) => {
                 self.status_message = Some(format!("删除失败: {}", e));
             }
         }
     }
-
+    
     pub(crate) fn rename_file(&mut self, old_name: &str, new_name: &str) {
         let mut new_name = new_name.trim().to_string();
         if new_name.is_empty() {
             self.status_message = Some("文件名不能为空".to_string());
             return;
         }
-        if !new_name.ends_with(".ng") && !new_name.ends_with(".txt") {
-            new_name.push_str(".ng");
+    
+        let old_is_dir = old_name.ends_with('/');
+        let clean_old = old_name.trim_end_matches('/').to_string();
+    
+        // 非目录：保留原扩展名
+        if !old_is_dir {
+            if let Some(ext) = std::path::Path::new(&clean_old)
+                .extension()
+                .and_then(|s| s.to_str())
+            {
+                let suffix = format!(".{}", ext);
+                if !new_name.ends_with(&suffix) {
+                    new_name.push_str(&suffix);
+                }
+            }
         }
-        if new_name == old_name {
+    
+        if new_name == clean_old {
             self.status_message = Some("文件名未改变".to_string());
             return;
         }
-        let old_path = self.dialog_dir.join(old_name);
-        let new_path = self.dialog_dir.join(&new_name);
+    
+        let base = if self.file_mgr_dir.is_empty() {
+            self.assets_dir.clone()
+        } else {
+            self.assets_dir.join(&self.file_mgr_dir)
+        };
+    
+        let old_path = base.join(&clean_old);
+        let new_path = base.join(&new_name);
+    
         if new_path.exists() {
-            self.status_message = Some(format!("目标文件已存在: {}", new_name));
+            self.status_message = Some(format!("目标已存在: {}", new_name));
             return;
         }
+    
         match fs::rename(&old_path, &new_path) {
             Ok(_) => {
-                self.load_story_files();
-                if let Some(idx) = self.story_files.iter().position(|f| f == &new_name) {
-                    self.story_selected = idx;
-                    self.story_state.select(Some(idx));
-                }
-                if self
-                    .file_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .map(|s| s == old_name)
-                    .unwrap_or(false)
-                {
+                if self.file_path == old_path {
                     self.file_path = new_path;
                 }
+                self.load_story_files();
                 self.status_message = Some(format!("✓ 已重命名为 {}", new_name));
             }
             Err(e) => {
@@ -649,6 +971,7 @@ impl Editor {
         self.picker_query.clear();
         self.picker_focused = true;
         self.mode = EditorMode::FilePicker;
+        self.update_preview();
     }
 
     pub(crate) fn open_scene_picker(&mut self) {
@@ -941,18 +1264,23 @@ impl Editor {
                 self.content_cursor = insert_pos + 1;
                 self.status_message = Some("已插入 end".to_string());
             }
-            12 => self.request_stats(),
-            13 => self.request_run_test(),
-            14 => self.request_build(),
-            15 => self.save(),
-            16 => {
+            12 => {
+                // 游戏设置
+                self.game_settings = Some(GameSettingsForm::load());
+                self.mode = EditorMode::GameSettings;
+            }
+            13 => self.request_stats(),
+            14 => self.request_run_test(),
+            15 => self.request_build(),
+            16 => self.save(),
+            17 => {
                 self.mode = EditorMode::Shell {
                     buffer: String::new(),
                     output: vec!["输入命令，回车执行，ESC 退出".to_string(), String::new()],
                 };
             }
-            17 => self.undo(),
-            18 => {
+            18 => self.undo(),
+            19 => {
                 self.save();
                 self.should_quit = true;
             }
@@ -1033,7 +1361,9 @@ impl Editor {
             if event::poll(Duration::from_millis(50))? {
                 match event::read()? {
                     Event::Key(key) => {
-                        self.handle_event(key.code, key.modifiers);
+                        if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                            self.handle_event(key.code, key.modifiers);
+                        }
                     }
                     Event::Mouse(mouse) => {
                         self.handle_mouse(mouse);
@@ -1087,6 +1417,49 @@ impl Editor {
         {
             Ok(_) => println!("\n✅ 打包完成"),
             Err(e) => println!("\n无法启动打包: {}", e),
+        }
+    }
+
+    /// 加载当前选中文件的预览图（图片选择器用）
+    pub(crate) fn update_preview(&mut self) {
+        self.preview_image = None;
+        self.preview_error = None;
+    
+        let filename = match self.picker_files.get(self.picker_selected) {
+            Some(f) => f.clone(),
+            None => return,
+        };
+    
+        let ext = std::path::Path::new(&filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+    
+        // 音频：不预览
+        if matches!(ext.as_str(), "mp3" | "wav" | "ogg" | "flac" | "m4a") {
+            self.preview_error = Some("🎵 音频文件".to_string());
+            return;
+        }
+    
+        let is_image = matches!(
+            ext.as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp"
+        );
+        if !is_image {
+            self.preview_error = Some("不支持预览".to_string());
+            return;
+        }
+    
+        let path = match self.picker_target {
+            0 => format!("assets/music/{}", filename),
+            1 | 2 => format!("assets/portraits/{}", filename),
+            _ => return,
+        };
+    
+        match crate::image::load_image_rgba(&path) {
+            Ok(img) => self.preview_image = Some(img),
+            Err(e) => self.preview_error = Some(format!("加载失败: {}", e)),
         }
     }
 }

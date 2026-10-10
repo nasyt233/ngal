@@ -1,0 +1,22 @@
+{
+  "state": {
+    "InDialogue": {
+      "scene_id": "index",
+      "cmd_index": 9
+    }
+  },
+  "menu_selected": 0,
+  "variables": {
+    "name": "嘉豪"
+  },
+  "current_image": "yxm.gif",
+  "timestamp": "2026-10-10 13:19:22",
+  "current_file": "dialogue.ng",
+  "background": "bg.png",
+  "bgm": "bg.mp3",
+  "image_params": {
+    "filename": "yxm.gif",
+    "position": 2,
+    "scale": 100
+  }
+}

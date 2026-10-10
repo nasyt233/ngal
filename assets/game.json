@@ -1,9 +1,9 @@
 {
-  "title": "ngal TUI终端GalGame小说引擎",
+  "bgm": "bg.mp3",
   "footer": "按回车继续 | q 返回主菜单 | H 历史 | A 自动播放",
   "index": "dialog/dialogue.ng",
   "logo": "logo.png",
-  "bgm": "bg.mp3",
-  "menu_image": "logo.png",
-  "menu_layout": 1
+  "menu_image": "yxm.gif",
+  "menu_layout": 1,
+  "title": "ngal TUI终端GalGame小说引擎"
 }
