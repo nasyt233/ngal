@@ -1193,13 +1193,22 @@ impl Editor {
                     Style::default().fg(C_BLUE),
                 ),
             ]),
-            Line::from(vec![
+                Line::from(vec![
                 Span::styled("  剧情: ", Style::default().fg(C_GRAY)),
                 Span::styled(
                     format!("{:>4} 个", info.story_count),
                     Style::default().fg(Color::White),
                 ),
-                Span::raw("   "),
+            ]),
+            Line::from(vec![
+                Span::styled("  行数: ", Style::default().fg(C_GRAY)),
+                Span::styled(
+                    format!("{:>4} 行", info.total_lines),
+                    Style::default().fg(Color::White),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  字数: ", Style::default().fg(C_GRAY)),
                 Span::styled(
                     format!("{} 字", info.total_words),
                     Style::default().fg(C_YELLOW),

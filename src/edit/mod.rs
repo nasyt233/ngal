@@ -940,29 +940,17 @@ impl Editor {
     }
 
     pub(crate) fn open_file_picker(&mut self, target: usize) {
-        let (dir, title) = match target {
-            0 => (self.assets_dir.join("music"), "选择音乐文件"),
-            1 => (self.assets_dir.join("portraits"), "选择背景图片"),
-            2 => (self.assets_dir.join("portraits"), "选择立绘图片"),
+        let (dir, title, kind) = match target {
+            0 => (self.assets_dir.join("music"), "选择音乐文件", FileKind::Music),
+            1 => (self.assets_dir.join("portraits"), "选择背景图片", FileKind::Image),
+            2 => (self.assets_dir.join("portraits"), "选择立绘图片", FileKind::Image),
             _ => return,
         };
-
+    
         let mut files = Vec::new();
-        if dir.exists() {
-            if let Ok(entries) = fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    if let Ok(ft) = entry.file_type() {
-                        if ft.is_file() {
-                            if let Some(name) = entry.file_name().to_str() {
-                                files.push(name.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        collect_files_filtered(&dir, "", kind, &mut files);
         files.sort();
-
+    
         self.picker_all_files = files.clone();
         self.picker_files = files;
         self.picker_selected = 0;
@@ -1460,6 +1448,63 @@ impl Editor {
         match crate::image::load_image_rgba(&path) {
             Ok(img) => self.preview_image = Some(img),
             Err(e) => self.preview_error = Some(format!("加载失败: {}", e)),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FileKind {
+    Music,
+    Image,
+}
+
+/// 递归收集文件（相对 base 的路径，含子目录），按类型过滤
+fn collect_files_filtered(base: &std::path::Path, prefix: &str, kind: FileKind, out: &mut Vec<String>) {
+    let dir = if prefix.is_empty() {
+        base.to_path_buf()
+    } else {
+        base.join(prefix)
+    };
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let rel = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", prefix, name)
+        };
+
+        if path.is_dir() {
+            collect_files_filtered(base, &rel, kind, out);
+        } else {
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let ok = match kind {
+                FileKind::Music => {
+                    matches!(ext.as_str(), "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac")
+                }
+                FileKind::Image => {
+                    matches!(
+                        ext.as_str(),
+                        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp"
+                    )
+                }
+            };
+            if ok {
+                out.push(rel);
+            }
         }
     }
 }

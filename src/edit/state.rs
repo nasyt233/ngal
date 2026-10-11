@@ -78,6 +78,7 @@ pub struct StatInfo {
     pub story_count: usize,
     pub story_size: u64,
     pub total_words: usize,
+    pub total_lines: usize,
     pub missing_images: Vec<String>,
     pub missing_music: Vec<String>,
     pub missing_voices: Vec<String>,

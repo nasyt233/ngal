@@ -13,25 +13,21 @@ pub enum ResourceSource {
     Memory(Arc<MemoryAssets>),
 }
 
-/// 用 RwLock 包裹，允许运行期间重新设置资源源
 static SOURCE: OnceLock<RwLock<Option<ResourceSource>>> = OnceLock::new();
 
 fn source_lock() -> &'static RwLock<Option<ResourceSource>> {
     SOURCE.get_or_init(|| RwLock::new(None))
 }
 
-/// 使用文件系统作为资源源（源码模式）
 pub fn set_filesystem() {
     *source_lock().write().unwrap() = Some(ResourceSource::FileSystem);
 }
 
-/// 使用内存作为资源源（打包模式）
 pub fn set_memory(files: HashMap<String, Vec<u8>>) {
     *source_lock().write().unwrap() =
         Some(ResourceSource::Memory(Arc::new(MemoryAssets { files })));
 }
 
-/// 当前是否使用内存资源源（打包模式）
 pub fn is_memory() -> bool {
     matches!(
         source_lock().read().unwrap().as_ref(),
@@ -39,7 +35,6 @@ pub fn is_memory() -> bool {
     )
 }
 
-/// 读取文本文件
 pub fn read_text(path: &str) -> Option<String> {
     let guard = source_lock().read().unwrap();
     match guard.as_ref()? {
@@ -51,7 +46,6 @@ pub fn read_text(path: &str) -> Option<String> {
     }
 }
 
-/// 读取二进制文件
 pub fn read_bytes(path: &str) -> Option<Vec<u8>> {
     let guard = source_lock().read().unwrap();
     match guard.as_ref()? {
@@ -60,7 +54,6 @@ pub fn read_bytes(path: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// 检查文件是否存在
 pub fn exists(path: &str) -> bool {
     let guard = source_lock().read().unwrap();
     match guard.as_ref() {
@@ -70,7 +63,39 @@ pub fn exists(path: &str) -> bool {
     }
 }
 
-/// 列出目录下的直接文件名（不含路径，不含子目录）
+/// 递归列出目录下所有文件（相对路径，含子目录）
+/// 例如 assets/portraits 下有 `我/hi.png` 和 `bg.png`，返回 ["bg.png", "我/hi.png"]
+pub fn list_dir_recursive(dir: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let prefix = format!("{}/", dir.trim_end_matches('/'));
+
+    {
+        let guard = source_lock().read().unwrap();
+        match guard.as_ref() {
+            Some(ResourceSource::FileSystem) => {
+                let base = Path::new(dir);
+                if base.is_dir() {
+                    walk_fs(base, base, &mut result);
+                }
+            }
+            Some(ResourceSource::Memory(m)) => {
+                for key in m.files.keys() {
+                    if let Some(rest) = key.strip_prefix(&prefix) {
+                        if !rest.is_empty() {
+                            result.push(rest.to_string());
+                        }
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
+    result.sort();
+    result
+}
+
+/// 非递归版本（兼容旧调用）
 pub fn list_dir(dir: &str) -> Vec<String> {
     let mut result = Vec::new();
     let prefix = format!("{}/", dir.trim_end_matches('/'));
@@ -107,7 +132,26 @@ pub fn list_dir(dir: &str) -> Vec<String> {
     result
 }
 
-/// 将内存中的资源落盘为临时文件（用于需要文件路径的场景，如 mpv 播放、图片解码）
+fn walk_fs(base: &Path, current: &Path, out: &mut Vec<String>) {
+    let entries = match fs::read_dir(current) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            walk_fs(base, &path, out);
+        } else if let Ok(rel) = path.strip_prefix(base) {
+            out.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+/// 将内存中的资源落盘为临时文件（保持子目录结构）
 pub fn materialize(path: &str) -> Option<PathBuf> {
     let guard = source_lock().read().unwrap();
     match guard.as_ref()? {
@@ -124,7 +168,7 @@ pub fn materialize(path: &str) -> Option<PathBuf> {
             let temp_root = std::env::temp_dir().join("ngal_cache");
             let _ = fs::create_dir_all(&temp_root);
 
-            // 保持子目录结构，避免重名（用下划线替换斜杠）
+            // 保留子目录结构，避免同名冲突
             let sub_path = path.replace('/', "_");
             let temp_path = temp_root.join(&sub_path);
 
@@ -136,7 +180,6 @@ pub fn materialize(path: &str) -> Option<PathBuf> {
     }
 }
 
-/// 清理临时缓存（退出时调用）
 pub fn cleanup_cache() {
     let should_clean = {
         let guard = source_lock().read().unwrap();

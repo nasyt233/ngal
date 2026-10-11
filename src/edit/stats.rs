@@ -63,6 +63,7 @@ pub fn compute_stats(editor: &Editor) -> StatInfo {
                                 info.story_size += content.len() as u64;
                                 info.total_words +=
                                     content.chars().filter(|c| !c.is_whitespace()).count();
+                                info.total_lines += content.lines().count();
                             }
                         }
                     }
@@ -73,7 +74,7 @@ pub fn compute_stats(editor: &Editor) -> StatInfo {
 
     info.total_size = info.img_size + info.music_size + info.voice_size + info.story_size;
 
-    // 缺失资源检测
+    // 缺失资源检测（支持子目录路径）
     if dialog_dir.exists() {
         if let Ok(entries) = fs::read_dir(&dialog_dir) {
             for entry in entries.flatten() {
@@ -141,23 +142,36 @@ pub fn compute_stats(editor: &Editor) -> StatInfo {
     info
 }
 
+/// 递归统计文件数量和总大小
 fn count_files(dir: &Path) -> (usize, u64) {
     let mut count = 0;
     let mut size = 0u64;
-    if dir.exists() {
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    count += 1;
-                    if let Ok(m) = fs::metadata(&path) {
-                        size += m.len();
-                    }
-                }
+    if dir.is_dir() {
+        walk(dir, &mut count, &mut size);
+    }
+    (count, size)
+}
+
+fn walk(dir: &Path, count: &mut usize, size: &mut u64) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            walk(&path, count, size);
+        } else if path.is_file() {
+            *count += 1;
+            if let Ok(m) = fs::metadata(&path) {
+                *size += m.len();
             }
         }
     }
-    (count, size)
 }
 
 fn basename(path: &str) -> String {

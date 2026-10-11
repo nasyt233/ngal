@@ -21,7 +21,7 @@ impl GalleryState {
     pub fn new() -> Self {
         let mut images = Vec::new();
 
-        let filenames = crate::assets::list_dir("assets/portraits");
+        let filenames = crate::assets::list_dir_recursive("assets/portraits");
     
         for name in filenames {
             if name.starts_with('.') {
