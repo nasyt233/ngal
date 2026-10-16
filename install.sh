@@ -4,7 +4,7 @@ myuname=$(uname | tr 'A-Z' 'a-z')
 arch=$(uname -m)
 
 if [ -n "$PREFIX" ]; then
-    arch=aarch64
+    arch=arm64
 else
     [ "$arch" = "x86_64" ] && arch="amd64"
     [ "$arch" = "aarch64" ] && arch="arm64"

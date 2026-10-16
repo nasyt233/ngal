@@ -20,17 +20,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ---------- Linux ----------
+          # ---------- Linux (musl 静态) ----------
           - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             target_name: linux-amd64
             bin_name: ngal
             ext: ''
-          - os: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
+            use_zig: true
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-musl
             target_name: linux-arm64
             bin_name: ngal
             ext: ''
+            use_zig: true
 
           # ---------- Windows ----------
           - os: windows-latest
@@ -38,11 +40,13 @@ jobs:
             target_name: win-amd64
             bin_name: ngal.exe
             ext: '.exe'
-          - os: windows-11-arm
+            use_zig: false
+          - os: windows-latest
             target: aarch64-pc-windows-msvc
             target_name: win-arm64
             bin_name: ngal.exe
             ext: '.exe'
+            use_zig: false
 
           # ---------- macOS ----------
           - os: macos-latest
@@ -50,68 +54,68 @@ jobs:
             target_name: macos-amd64
             bin_name: ngal
             ext: ''
+            use_zig: false
           - os: macos-latest
             target: aarch64-apple-darwin
             target_name: macos-arm64
             bin_name: ngal
             ext: ''
+            use_zig: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Linux 依赖
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev
-
-      # Rust 工具链
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      # 缓存
+      - name: Install Zig
+        if: matrix.use_zig
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild
+        if: matrix.use_zig
+        run: cargo install cargo-zigbuild --locked
+
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
 
-      # 读版本
       - name: Get package version
         id: version
         shell: bash
         run: |
           VERSION=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
           if [ -z "$VERSION" ]; then
-            echo "❌ 无法从 Cargo.toml 读取版本号"
+            echo "❌ 无法读取版本号"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Package version: $VERSION"
 
-      # 校验 tag
       - name: Verify tag matches version
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           TAG="${GITHUB_REF#refs/tags/ngal-}"
           VERSION="${{ steps.version.outputs.version }}"
-          echo "Tag version: $TAG"
-          echo "Cargo version: $VERSION"
           if [ "$TAG" != "$VERSION" ]; then
             echo "❌ Tag (ngal-$TAG) 与 Cargo.toml 版本 ($VERSION) 不一致"
             exit 1
           fi
           echo "✅ 版本号一致"
 
-      # 编译
-      - name: Build release
-        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Build (musl via zig)
+        if: matrix.use_zig
+        run: cargo zigbuild --release --target ${{ matrix.target }}
 
-      # 打包（跨平台通用）
+      - name: Build (native)
+        if: '!matrix.use_zig'
+        run: cargo build --release --target ${{ matrix.target }}
+
       - name: Package binary
         shell: bash
         run: |
@@ -122,10 +126,12 @@ jobs:
           if [ "${{ runner.os }}" != "Windows" ]; then
             chmod +x "$DST"
           fi
-          echo "Packaged: $DST"
+          echo "=== 文件信息 ==="
           ls -la dist/
+          if command -v file >/dev/null 2>&1; then
+            file "$DST"
+          fi
 
-      # 上传
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -146,12 +152,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-merge: true
           merge-multiple: true
 
       - name: List artifacts
-        run: |
-          echo "Artifacts:"
-          ls -laR artifacts/
+        run: ls -laR artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
