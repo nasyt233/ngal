@@ -7,21 +7,20 @@ readme = "README_en.md"
 homepage = "https://nasyt.hoha.top"
 repository = "https://github.com/nasyt233/ngal"
 license = "MIT OR Apache-2.0"
-maintainer = ["nasyt"]
-keywords = ["ngal", "nasyt", "galgame", "game", "game-engines", ]
+authors = ["nasyt"]
+keywords = ["ngal", "nasyt", "galgame", "game", "game-engines"]
 
 [dependencies]
 ratatui = "0.26"
 crossterm = "0.27"
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
 regex = "1"
 chrono = "0.4"
-zip = "9.0.4"
+zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 chacha20poly1305 = "0.10"
-
 
 [[bin]]
 name = "ngal"
@@ -30,6 +29,6 @@ path = "src/main.rs"
 [profile.release]
 lto = true
 strip = true
-opt-level = "z" 
+opt-level = "z"
 codegen-units = 1
-panic = 'abort'
+panic = "abort"
