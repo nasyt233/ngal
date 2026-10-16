@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use crate::defaults;
 use std::collections::HashMap;
+use zip::write::SimpleFileOptions;
 
 const XOR_KEY: &[u8] = b"ngal_2026_secret_key_please_change";
 
@@ -295,7 +296,7 @@ pub fn build_project(dir: PathBuf, output: Option<PathBuf>) -> Result<()> {
     println!("🗜️  正在压缩...");
 
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options = zip::write::FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
     let bar_width = 30;
@@ -432,7 +433,7 @@ pub fn run_packed(packed_file: &Path, debug: bool) -> Result<()> {
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         if entry.is_file() {
-            let name = entry.name().to_string();
+            let name = entry.name()?.to_string();
             let mut buf = Vec::new();
             entry.read_to_end(&mut buf)?;
             files.insert(name, buf);

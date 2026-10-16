@@ -1,22 +1,165 @@
-name: Rust
+name: Build and Release
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags:
+      - 'ngal-*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
+    name: Build ${{ matrix.target_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---------- Linux ----------
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            target_name: linux-amd64
+            bin_name: ngal
+            ext: ''
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            target_name: linux-arm64
+            bin_name: ngal
+            ext: ''
 
-    runs-on: ubuntu-latest
+          # ---------- Windows ----------
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            target_name: win-amd64
+            bin_name: ngal.exe
+            ext: '.exe'
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            target_name: win-arm64
+            bin_name: ngal.exe
+            ext: '.exe'
+
+          # ---------- macOS ----------
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            target_name: macos-amd64
+            bin_name: ngal
+            ext: ''
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            target_name: macos-arm64
+            bin_name: ngal
+            ext: ''
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --release
-    - name: Run tests
-      run: cargo test --release
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Linux 依赖
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev
+
+      # Rust 工具链
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # 缓存
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # 读版本
+      - name: Get package version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "❌ 无法从 Cargo.toml 读取版本号"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Package version: $VERSION"
+
+      # 校验 tag
+      - name: Verify tag matches version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/ngal-}"
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "Tag version: $TAG"
+          echo "Cargo version: $VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "❌ Tag (ngal-$TAG) 与 Cargo.toml 版本 ($VERSION) 不一致"
+            exit 1
+          fi
+          echo "✅ 版本号一致"
+
+      # 编译
+      - name: Build release
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # 打包（跨平台通用）
+      - name: Package binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          SRC="target/${{ matrix.target }}/release/${{ matrix.bin_name }}"
+          DST="dist/ngal-${{ steps.version.outputs.version }}-${{ matrix.target_name }}${{ matrix.ext }}"
+          cp "$SRC" "$DST"
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            chmod +x "$DST"
+          fi
+          echo "Packaged: $DST"
+          ls -la dist/
+
+      # 上传
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ngal-${{ matrix.target_name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "Artifacts:"
+          ls -laR artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
